@@ -20,8 +20,10 @@ pub enum BytesFormat {
 /// Bytes literal represented either by a string, raw string or raw bytes.
 #[derive(PartialEq, Eq, Clone)]
 pub struct BytesExpr {
-    format: BytesFormat,
-    data: Box<[u8]>,
+    /// TODO
+    pub format: BytesFormat,
+    /// TODO
+    pub data: Box<[u8]>,
 }
 
 impl BytesExpr {
