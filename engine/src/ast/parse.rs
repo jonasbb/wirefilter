@@ -13,19 +13,19 @@ use std::fmt::{self, Debug, Display, Formatter};
 #[derive(Debug, PartialEq)]
 pub struct ParseError<'i> {
     /// The error that occurred when parsing the input
-    pub(crate) kind: LexErrorKind,
+    pub kind: LexErrorKind,
 
     /// The input that caused the parse error
-    pub(crate) input: &'i str,
+    pub input: &'i str,
 
     /// The line number on the input where the error occurred
-    pub(crate) line_number: usize,
+    pub line_number: usize,
 
     /// The start of the bad input
-    pub(crate) span_start: usize,
+    pub span_start: usize,
 
     /// The number of characters that span the bad input
-    pub(crate) span_len: usize,
+    pub span_len: usize,
 }
 
 impl Error for ParseError<'_> {}
