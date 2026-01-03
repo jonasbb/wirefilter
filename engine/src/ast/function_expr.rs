@@ -22,8 +22,10 @@ use crate::{
     types::{GetType, LhsValue, RhsValue, Type},
 };
 use serde::Serialize;
-use std::hash::{Hash, Hasher};
-use std::iter::once;
+use std::{
+    hash::{Hash, Hasher},
+    iter::once,
+};
 
 /// Represents a function argument in a function call.
 #[derive(Debug, PartialEq, Eq, Clone, Hash, Serialize)]
@@ -101,6 +103,7 @@ impl FunctionCallArgExpr {
             FunctionCallArgExpr::Logical(LogicalExpr::Comparison(ComparisonExpr {
                 lhs,
                 op: ComparisonOpExpr::IsTrue,
+                ..
             })) => FunctionCallArgExpr::IndexExpr(lhs),
             _ => self,
         }
@@ -541,8 +544,7 @@ mod tests {
         scheme::{FieldIndex, IndexAccessError, Scheme},
         types::{RhsValues, Type, TypeMismatchError},
     };
-    use std::convert::TryFrom;
-    use std::sync::LazyLock;
+    use std::{convert::TryFrom, sync::LazyLock};
 
     fn any_function<'a>(args: FunctionArgs<'_, 'a>) -> Option<LhsValue<'a>> {
         match args.next()? {
@@ -767,7 +769,8 @@ mod tests {
             }
         );
 
-        // test that adjacent single digit int literals are parsed properly (without spaces)
+        // test that adjacent single digit int literals are parsed properly (without
+        // spaces)
         let expr = assert_ok!(
             FilterParser::new(&SCHEME).lex_as(r#"echo (http.host,1,2);"#),
             FunctionCallExpr {
@@ -902,6 +905,7 @@ mod tests {
                                         indexes: vec![],
                                     },
                                     op: ComparisonOpExpr::IsTrue,
+                                    reverse_span: 0..0
                                 }),
                                 LogicalExpr::Comparison(ComparisonExpr {
                                     lhs: IndexExpr {
@@ -914,8 +918,10 @@ mod tests {
                                         indexes: vec![],
                                     },
                                     op: ComparisonOpExpr::IsTrue,
+                                    reverse_span: 0..0
                                 })
-                            ]
+                            ],
+                            reverse_span: 0..0
                         }
                     })
                 ))],
@@ -1032,7 +1038,8 @@ mod tests {
                 op: ComparisonOpExpr::Ordering {
                     op: OrderingOp::Equal,
                     rhs: RhsValue::Bytes("test".to_owned().into())
-                }
+                },
+                reverse_span: 0..0
             })),
             ""
         );
@@ -1060,7 +1067,8 @@ mod tests {
                             }),
                             indexes: vec![FieldIndex::MapEach],
                         },
-                        op: ComparisonOpExpr::Contains("c".to_string().into(),)
+                        op: ComparisonOpExpr::Contains("c".to_string().into(),),
+                        reverse_span: 0..0
                     }
                 ))],
                 context: None,
@@ -1153,8 +1161,10 @@ mod tests {
                                 "Cookie".to_owned().into(),
                                 "Cookies".to_owned().into(),
                             ])),
+                            reverse_span: 0..0
                         })
-                    },)))
+                    },))),
+                    reverse_span: 0..0
                 })],
                 context: None,
             },
@@ -1214,8 +1224,10 @@ mod tests {
                                 "Cookie".to_owned().into(),
                                 "Cookies".to_owned().into(),
                             ])),
+                            reverse_span: 0..0
                         })
-                    },)))
+                    },))),
+                    reverse_span: 0..0
                 })],
                 context: None,
             },

@@ -7,10 +7,11 @@ use super::{
 use crate::{
     compiler::Compiler,
     filter::{CompiledExpr, CompiledOneExpr, CompiledVecExpr},
-    lex::{Lex, LexErrorKind, LexResult, LexWith, expect, skip_space},
+    lex::{Lex, LexErrorKind, LexResult, LexWith, expect, skip_space, span_reverse_range},
     types::{GetType, Type, TypeMismatchError},
 };
 use serde::Serialize;
+use std::ops::Range;
 
 lex_enum!(
     /// LogicalOp is an operator for a [`LogicalExpr`]. Its ordering is defined
@@ -43,7 +44,7 @@ pub struct ParenthesizedExpr {
 
 /// LogicalExpr is a either a generic sub-expression
 /// or a logical conjunction expression.
-#[derive(Debug, PartialEq, Eq, Clone, Hash, Serialize)]
+#[derive(Debug, derive_more::PartialEq, derive_more::Eq, Clone, Hash, Serialize)]
 #[serde(untagged)]
 pub enum LogicalExpr {
     /// Logical conjunction expression
@@ -52,9 +53,15 @@ pub enum LogicalExpr {
         op: LogicalOp,
         /// List of sub-expressions
         items: Vec<LogicalExpr>,
+        /// Range relative to the input end
+        #[serde(skip)]
+        #[eq(skip)]
+        reverse_span: Range<usize>,
     },
     /// A comparison expression.
-    Comparison(ComparisonExpr),
+    Comparison(
+        ComparisonExpr,
+    ),
     /// A parenthesized expression.
     Parenthesized(Box<ParenthesizedExpr>),
     /// A unary expression.
@@ -63,6 +70,10 @@ pub enum LogicalExpr {
         op: UnaryOp,
         /// Sub-expression.
         arg: Box<LogicalExpr>,
+        /// Range relative to the input end
+        #[serde(skip)]
+        #[eq(skip)]
+        reverse_span: Range<usize>,
     },
 }
 
@@ -70,7 +81,7 @@ impl GetType for LogicalExpr {
     fn get_type(&self) -> Type {
         match &self {
             LogicalExpr::Combining { items, .. } => items[0].get_type(),
-            LogicalExpr::Comparison(comparison) => comparison.get_type(),
+            LogicalExpr::Comparison(comparison,..) => comparison.get_type(),
             LogicalExpr::Parenthesized(parenthesized) => parenthesized.expr.get_type(),
             LogicalExpr::Unary { arg, .. } => arg.get_type(),
         }
@@ -78,6 +89,20 @@ impl GetType for LogicalExpr {
 }
 
 impl LogicalExpr {
+    /// Return the reverse byte span for the `LogicalExpr`
+    ///
+    /// The bytes are counted from the end of the string
+    pub fn get_reverse_span(&self) -> Range<usize> {
+        match self {
+            LogicalExpr::Combining { reverse_span, .. } => reverse_span.clone(),
+            LogicalExpr::Comparison(ComparisonExpr{reverse_span,..}) => reverse_span.clone(),
+            LogicalExpr::Parenthesized(parenthesized_expr) => {
+                parenthesized_expr.expr.get_reverse_span()
+            }
+            LogicalExpr::Unary { reverse_span, .. } => reverse_span.clone(),
+        }
+    }
+
     fn lex_combining_op(input: &str) -> (Option<LogicalOp>, &str) {
         match LogicalOp::lex(skip_space(input)) {
             Ok((op, input)) => (Some(op), skip_space(input)),
@@ -95,15 +120,17 @@ impl LogicalExpr {
                 LogicalExpr::Parenthesized(Box::new(ParenthesizedExpr { expr })),
                 input,
             )
-        } else if let Ok((op, input)) = UnaryOp::lex(input) {
-            let input = skip_space(input);
-            let (arg, input) = Self::lex_simple_expr(input, parser)?;
+        } else if let Ok((op, rest)) = UnaryOp::lex(input) {
+            let rest = skip_space(rest);
+            let (arg, rest) = Self::lex_simple_expr(rest, parser)?;
+            let reverse_span = span_reverse_range(input, rest);
             (
                 LogicalExpr::Unary {
                     op,
                     arg: Box::new(arg),
+                    reverse_span,
                 },
-                input,
+                rest,
             )
         } else {
             let (op, input) = ComparisonExpr::lex_with(input, parser)?;
@@ -155,12 +182,16 @@ impl LogicalExpr {
                 LogicalExpr::Combining {
                     op: lhs_op,
                     ref mut items,
+                    ref mut reverse_span,
                 } if lhs_op == op => {
+                    // Update span information
+                    reverse_span.end = rhs.0.get_reverse_span().end;
                     items.push(rhs.0);
                 }
                 _ => {
                     lhs = LogicalExpr::Combining {
                         op,
+                        reverse_span: lhs.get_reverse_span().start..rhs.0.get_reverse_span().end,
                         items: vec![lhs, rhs.0],
                     };
                 }
@@ -221,6 +252,7 @@ impl Expr for LogicalExpr {
             LogicalExpr::Unary {
                 op: UnaryOp::Not,
                 arg,
+                ..
             } => {
                 let arg = compiler.compile_logical_expr(*arg);
                 match arg {
@@ -232,7 +264,7 @@ impl Expr for LogicalExpr {
                     })),
                 }
             }
-            LogicalExpr::Combining { op, items } => {
+            LogicalExpr::Combining { op, items, .. } => {
                 let items = items.into_iter();
                 let mut items = items.map(|item| compiler.compile_logical_expr(item));
                 let first = items.next().unwrap();
@@ -327,8 +359,10 @@ impl Expr for LogicalExpr {
 fn test() {
     use super::field_expr::ComparisonExpr;
     use crate::{
-        ast::field_expr::{ComparisonOpExpr, IdentifierExpr},
-        ast::index_expr::IndexExpr,
+        ast::{
+            field_expr::{ComparisonOpExpr, IdentifierExpr},
+            index_expr::IndexExpr,
+        },
         execution_context::ExecutionContext,
         lex::complete,
         lhs_types::Array,
@@ -388,6 +422,7 @@ fn test() {
             LogicalExpr::Combining {
                 op: LogicalOp::And,
                 items: vec![t_expr(), t_expr()],
+                reverse_span: 0..0
             }
         );
 
@@ -402,6 +437,7 @@ fn test() {
             LogicalExpr::Combining {
                 op: LogicalOp::And,
                 items: vec![t_expr(), f_expr()],
+                reverse_span: 0..0
             }
         );
 
@@ -433,6 +469,7 @@ fn test() {
             LogicalExpr::Combining {
                 op: LogicalOp::Or,
                 items: vec![t_expr(), f_expr()],
+                reverse_span: 0..0
             }
         );
 
@@ -464,6 +501,7 @@ fn test() {
             LogicalExpr::Combining {
                 op: LogicalOp::Or,
                 items: vec![f_expr(), f_expr()],
+                reverse_span: 0..0
             }
         );
 
@@ -478,6 +516,7 @@ fn test() {
             LogicalExpr::Combining {
                 op: LogicalOp::Xor,
                 items: vec![t_expr(), f_expr()],
+                reverse_span: 0..0
             }
         );
 
@@ -509,6 +548,7 @@ fn test() {
             LogicalExpr::Combining {
                 op: LogicalOp::Xor,
                 items: vec![f_expr(), f_expr()],
+                reverse_span: 0..0
             }
         );
 
@@ -523,6 +563,7 @@ fn test() {
             LogicalExpr::Combining {
                 op: LogicalOp::Xor,
                 items: vec![f_expr(), t_expr()],
+                reverse_span: 0..0
             }
         );
 
@@ -540,6 +581,7 @@ fn test() {
                 LogicalExpr::Combining {
                     op: LogicalOp::And,
                     items: vec![t_expr(), t_expr(), t_expr()],
+                    reverse_span: 0..0
                 },
                 LogicalExpr::Combining {
                     op: LogicalOp::Xor,
@@ -548,11 +590,14 @@ fn test() {
                         LogicalExpr::Combining {
                             op: LogicalOp::And,
                             items: vec![t_expr(), t_expr()],
+                            reverse_span: 0..0
                         },
                     ],
+                    reverse_span: 0..0
                 },
                 t_expr(),
             ],
+            reverse_span: 0..0
         }
     );
 
@@ -562,6 +607,7 @@ fn test() {
             LogicalExpr::Combining {
                 op: LogicalOp::And,
                 items: vec![at_expr(), af_expr()],
+                reverse_span: 0..0
             }
         );
 
@@ -576,6 +622,7 @@ fn test() {
             LogicalExpr::Combining {
                 op: LogicalOp::Or,
                 items: vec![at_expr(), af_expr()],
+                reverse_span: 0..0
             }
         );
 
@@ -590,6 +637,7 @@ fn test() {
             LogicalExpr::Combining {
                 op: LogicalOp::Xor,
                 items: vec![at_expr(), af_expr()],
+                reverse_span: 0..0
             }
         );
 
@@ -702,7 +750,8 @@ fn test() {
                     identifier: IdentifierExpr::Field(scheme.get_field("at").unwrap().to_owned()),
                     indexes: vec![FieldIndex::MapEach],
                 },
-                op: ComparisonOpExpr::IsTrue
+                op: ComparisonOpExpr::IsTrue,
+                reverse_span: 0..0
             })
         );
 
@@ -775,6 +824,7 @@ fn test() {
     let not_expr = |expr| LogicalExpr::Unary {
         op: UnaryOp::Not,
         arg: Box::new(expr),
+        reverse_span: 0..0,
     };
 
     {
@@ -891,6 +941,7 @@ fn test() {
             LogicalExpr::Combining {
                 op: LogicalOp::And,
                 items: vec![not_expr(t_expr()), f_expr()],
+                reverse_span: 0..0
             }
         );
 
