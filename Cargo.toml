@@ -21,6 +21,7 @@ cbindgen = "0.29.4"
 cfg-if = "1.0.4"
 cidr = { version = "0.2.3", features = ["serde"] }
 criterion = "0.8.2"
+derive_more = { version = "2.1.1", features = ["eq"] }
 dyn-clone = "1.0.20"
 erased-serde = "0.4.10"
 fnv = "1.0.7"

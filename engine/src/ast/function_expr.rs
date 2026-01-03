@@ -11,7 +11,9 @@ use crate::functions::{
     CompiledFunction, ExactSizeChain, FunctionDefinition, FunctionDefinitionContext, FunctionParam,
     FunctionParamError,
 };
-use crate::lex::{Lex, LexError, LexErrorKind, LexResult, LexWith, expect, skip_space, span};
+use crate::lex::{
+    Lex, LexError, LexErrorKind, LexResult, LexWith, expect, skip_space, span, span_reverse_range,
+};
 use crate::lhs_types::Array;
 use crate::scheme::Function;
 use crate::types::{GetType, LhsValue, LiteralValue, Type};
@@ -109,6 +111,7 @@ impl FunctionCallArgExpr {
             FunctionCallArgExpr::Logical(LogicalExpr::Comparison(ComparisonExpr {
                 lhs,
                 op: ComparisonOpExpr::IsTrue,
+                ..
             })) => FunctionCallArgExpr::IndexExpr(lhs),
             _ => self,
         }
@@ -157,33 +160,39 @@ impl<'i, 's> LexWith<'i, &FilterParser<'s>> for FunctionCallArgExpr {
                     && c3.is_some()
                     && c_is_field!(c3.unwrap()))
             {
-                let (lhs, input) = IndexExpr::lex_with(input, parser)?;
-                let lookahead = skip_space(input);
+                let (lhs, rest) = IndexExpr::lex_with(input, parser)?;
+                let lookahead = skip_space(rest);
                 if ComparisonOp::lex(lookahead).is_ok() {
-                    return ComparisonExpr::lex_with_lhs(input, parser, lhs).map(|(op, input)| {
-                        (
-                            FunctionCallArgExpr::Logical(LogicalExpr::Comparison(op)),
-                            input,
-                        )
-                    });
+                    return ComparisonExpr::lex_with_lhs(rest, parser, lhs).map(
+                        |(mut op, rest)| {
+                            let reverse_span = span_reverse_range(input, rest);
+                            op.reverse_span = reverse_span;
+                            (
+                                FunctionCallArgExpr::Logical(LogicalExpr::Comparison(op)),
+                                rest,
+                            )
+                        },
+                    );
                 } else {
-                    return Ok((FunctionCallArgExpr::IndexExpr(lhs), input));
+                    return Ok((FunctionCallArgExpr::IndexExpr(lhs), rest));
                 }
             }
         }
 
         // Fallback to blind parsing next argument
-        if let Ok((lhs, input)) = IndexExpr::lex_with(input, parser) {
-            let lookahead = skip_space(input);
+        if let Ok((lhs, rest)) = IndexExpr::lex_with(input, parser) {
+            let lookahead = skip_space(rest);
             if ComparisonOp::lex(lookahead).is_ok() {
-                return ComparisonExpr::lex_with_lhs(input, parser, lhs).map(|(op, input)| {
+                return ComparisonExpr::lex_with_lhs(rest, parser, lhs).map(|(mut op, rest)| {
+                    let reverse_span = span_reverse_range(input, rest);
+                    op.reverse_span = reverse_span;
                     (
                         FunctionCallArgExpr::Logical(LogicalExpr::Comparison(op)),
-                        input,
+                        rest,
                     )
                 });
             } else {
-                return Ok((FunctionCallArgExpr::IndexExpr(lhs), input));
+                return Ok((FunctionCallArgExpr::IndexExpr(lhs), rest));
             }
         }
 
@@ -757,6 +766,7 @@ mod tests {
                             SCHEME.get_field("http.host").unwrap().to_owned()
                         ),
                         indexes: vec![],
+                        reverse_span: 0..0,
                     }),
                     FunctionCallArgExpr::Literal(LiteralValue::Int(1)),
                     FunctionCallArgExpr::Literal(LiteralValue::Int(2)),
@@ -799,6 +809,7 @@ mod tests {
                         SCHEME.get_field("http.host").unwrap().to_owned()
                     ),
                     indexes: vec![],
+                    reverse_span: 0..0,
                 })],
                 context: None,
             },
@@ -821,7 +832,8 @@ mod tests {
             }
         );
 
-        // test that adjacent single digit int literals are parsed properly (without spaces)
+        // test that adjacent single digit int literals are parsed properly (without
+        // spaces)
         let expr = assert_ok!(
             FilterParser::new(&SCHEME).lex_as(r#"echo (http.host,1,2);"#),
             FunctionCallExpr {
@@ -832,6 +844,7 @@ mod tests {
                             SCHEME.get_field("http.host").unwrap().to_owned()
                         ),
                         indexes: vec![],
+                        reverse_span: 0..0,
                     }),
                     FunctionCallArgExpr::Literal(LiteralValue::Int(1)),
                     FunctionCallArgExpr::Literal(LiteralValue::Int(2)),
@@ -899,10 +912,12 @@ mod tests {
                                 SCHEME.get_field("http.host").unwrap().to_owned()
                             ),
                             indexes: vec![],
+                            reverse_span: 0..0,
                         })],
                         context: None,
                     }),
                     indexes: vec![],
+                    reverse_span: 0..0,
                 })]
                 .to_vec(),
                 context: None,
@@ -954,8 +969,10 @@ mod tests {
                                                 .to_owned()
                                         ),
                                         indexes: vec![],
+                                        reverse_span: 0..0,
                                     },
                                     op: ComparisonOpExpr::IsTrue,
+                                    reverse_span: 0..0,
                                 }),
                                 LogicalExpr::Comparison(ComparisonExpr {
                                     lhs: IndexExpr {
@@ -966,13 +983,17 @@ mod tests {
                                                 .to_owned()
                                         ),
                                         indexes: vec![],
+                                        reverse_span: 0..0,
                                     },
                                     op: ComparisonOpExpr::IsTrue,
+                                    reverse_span: 0..0,
                                 })
-                            ]
+                            ],
+                            reverse_span: 0..0,
                         }
                     })
                 ))),
+                reverse_span: 0..0,
             },
             ""
         );
@@ -1014,6 +1035,7 @@ mod tests {
                             .to_owned()
                     ),
                     indexes: vec![FieldIndex::MapEach],
+                    reverse_span: 0..0,
                 })],
                 context: None,
             },
@@ -1045,6 +1067,7 @@ mod tests {
                         SCHEME.get_field("http.headers").unwrap().to_owned()
                     ),
                     indexes: vec![FieldIndex::MapEach],
+                    reverse_span: 0..0,
                 })],
                 context: None,
             },
@@ -1078,11 +1101,13 @@ mod tests {
                             .to_owned()
                     ),
                     indexes: vec![FieldIndex::MapEach],
+                    reverse_span: 0..0,
                 },
                 op: ComparisonOpExpr::Ordering {
                     op: OrderingOp::Equal,
                     rhs: ComparisonRhs::Literal(LiteralValue::Bytes("test".to_owned().into()))
-                }
+                },
+                reverse_span: 0..0,
             })),
             ""
         );
@@ -1105,14 +1130,18 @@ mod tests {
                                             .to_owned()
                                     ),
                                     indexes: vec![FieldIndex::MapEach],
+                                    reverse_span: 0..0,
                                 })],
                                 context: None,
                             }),
                             indexes: vec![FieldIndex::MapEach],
+                            reverse_span: 0..0,
                         },
-                        op: ComparisonOpExpr::Contains("c".to_string().into(),)
+                        op: ComparisonOpExpr::Contains("c".to_string().into(),),
+                        reverse_span: 0..0,
                     }
                 ))),
+                reverse_span: 0..0,
             },
             ""
         );
@@ -1164,6 +1193,7 @@ mod tests {
                             .to_owned()
                     ),
                     indexes: vec![FieldIndex::MapEach],
+                    reverse_span: 0..0,
                 })],
                 context: None,
             },
@@ -1194,14 +1224,18 @@ mod tests {
                                         .to_owned()
                                 ),
                                 indexes: vec![FieldIndex::MapEach],
+                                reverse_span: 0..0,
                             },
                             op: ComparisonOpExpr::OneOf(LiteralSet::Bytes(vec![
                                 "Cookie".to_owned().into(),
                                 "Cookies".to_owned().into(),
                             ])),
+                            reverse_span: 0..0,
                         })
-                    },)))
+                    },))),
+                    reverse_span: 0..0,
                 })),
+                reverse_span: 0..0,
             },
             ""
         );
@@ -1251,14 +1285,18 @@ mod tests {
                                         .to_owned()
                                 ),
                                 indexes: vec![FieldIndex::MapEach],
+                                reverse_span: 0..0,
                             },
                             op: ComparisonOpExpr::OneOf(LiteralSet::Bytes(vec![
                                 "Cookie".to_owned().into(),
                                 "Cookies".to_owned().into(),
                             ])),
+                            reverse_span: 0..0,
                         })
-                    },)))
+                    },))),
+                    reverse_span: 0..0,
                 })),
+                reverse_span: 0..0,
             },
             ""
         );
@@ -1302,6 +1340,7 @@ mod tests {
                     FunctionCallArgExpr::IndexExpr(IndexExpr {
                         identifier: IdentifierExpr::Field(SCHEME.get_field("http.host").unwrap().to_owned()),
                         indexes: vec![],
+                        reverse_span: 0..0,
                     }),
                     FunctionCallArgExpr::Literal(LiteralValue::Bytes(BytesExpr::new("this is a r##raw## string".as_bytes(), BytesFormat::Raw(0)))),
                     FunctionCallArgExpr::Literal(LiteralValue::Bytes(BytesExpr::new("this is a new r##raw## string".as_bytes(), BytesFormat::Raw(0))))
@@ -1343,6 +1382,7 @@ mod tests {
                     FunctionCallArgExpr::IndexExpr(IndexExpr {
                         identifier: IdentifierExpr::Field(SCHEME.get_field("http.host").unwrap().to_owned()),
                         indexes: vec![],
+                        reverse_span: 0..0,
                     }),
                     FunctionCallArgExpr::Literal(LiteralValue::Bytes(BytesExpr::new("this is a r##\"raw\"## string".as_bytes(), BytesFormat::Raw(3)))),
                     FunctionCallArgExpr::Literal(LiteralValue::Bytes(BytesExpr::new("this is a new r##\"raw\"## string".as_bytes(), BytesFormat::Raw(3))))

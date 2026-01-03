@@ -5,7 +5,9 @@ use super::visitor::{Visitor, VisitorMut};
 use crate::ast::index_expr::{Compare, IndexExpr};
 use crate::compiler::Compiler;
 use crate::filter::{CompiledExpr, CompiledOneExpr, CompiledVecExpr};
-use crate::lex::{Lex, LexErrorKind, LexResult, LexWith, expect, skip_space, span};
+use crate::lex::{
+    Lex, LexErrorKind, LexResult, LexWith, expect, skip_space, span, span_reverse_range,
+};
 use crate::lhs_types::TypedArray;
 use crate::range_set::RangeSet;
 use crate::rhs_types::{BytesExpr, ExplicitIpRange, ListName, Regex, Wildcard};
@@ -21,6 +23,7 @@ use sliceslice::MemchrSearcher;
 use std::cmp::Ordering;
 use std::collections::BTreeSet;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+use std::ops::Range;
 #[cfg(any(target_arch = "x86", target_arch = "x86_64", target_arch = "wasm32"))]
 use std::sync::LazyLock;
 
@@ -563,7 +566,7 @@ impl GetType for IdentifierExpr {
 }
 
 /// Comparison expression
-#[derive(Debug, PartialEq, Eq, Clone, Hash, Serialize)]
+#[derive(Debug, derive_more::PartialEq, derive_more::Eq, Clone, Hash, Serialize)]
 pub struct ComparisonExpr {
     /// Left-hand side of the comparison expression
     pub lhs: IndexExpr,
@@ -571,6 +574,11 @@ pub struct ComparisonExpr {
     /// Operator + right-hand side of the comparison expression
     #[serde(flatten)]
     pub op: ComparisonOpExpr,
+
+    /// Range relative to the input end
+    #[serde(skip)]
+    #[eq(skip)]
+    pub reverse_span: Range<usize>,
 }
 
 impl GetType for ComparisonExpr {
@@ -588,9 +596,12 @@ impl GetType for ComparisonExpr {
 
 impl<'i> LexWith<'i, &FilterParser<'_>> for ComparisonExpr {
     fn lex_with(input: &'i str, parser: &FilterParser<'_>) -> LexResult<'i, Self> {
-        let (lhs, input) = IndexExpr::lex_with(input, parser)?;
+        let (lhs, rest) = IndexExpr::lex_with(input, parser)?;
 
-        Self::lex_with_lhs(input, parser, lhs)
+        let (mut expr, rest) = Self::lex_with_lhs(rest, parser, lhs)?;
+        let reverse_span = span_reverse_range(input, rest);
+        expr.reverse_span = reverse_span;
+        Ok((expr, rest))
     }
 }
 
@@ -687,7 +698,15 @@ impl ComparisonExpr {
             }
         };
 
-        Ok((ComparisonExpr { lhs, op }, input))
+        Ok((
+            ComparisonExpr {
+                lhs,
+                op,
+                // Dummy span, gets replaced in lex_with
+                reverse_span: 0..0,
+            },
+            input,
+        ))
     }
 
     /// Retrieves the associated left hand side expression.
@@ -1523,8 +1542,10 @@ mod tests {
                 lhs: IndexExpr {
                     identifier: IdentifierExpr::Field(field("ssl").to_owned()),
                     indexes: vec![],
+                    reverse_span: 0..0,
                 },
-                op: ComparisonOpExpr::IsTrue
+                op: ComparisonOpExpr::IsTrue,
+                reverse_span: 0..0,
             }
         );
 
@@ -1560,6 +1581,7 @@ mod tests {
                 lhs: IndexExpr {
                     identifier: IdentifierExpr::Field(field("ip.addr").to_owned()),
                     indexes: vec![],
+                    reverse_span: 0..0,
                 },
                 op: ComparisonOpExpr::Ordering {
                     op: OrderingOp::LessThanEqual,
@@ -1567,6 +1589,7 @@ mod tests {
                         0x10, 0x20, 0x30, 0x40, 0x50, 0x60, 0x70, 0x80
                     ])))
                 },
+                reverse_span: 0..0,
             }
         );
 
@@ -1627,6 +1650,7 @@ mod tests {
                     lhs: IndexExpr {
                         identifier: IdentifierExpr::Field(field("http.host").to_owned()),
                         indexes: vec![],
+                        reverse_span: 0..0,
                     },
                     op: ComparisonOpExpr::Ordering {
                         op: OrderingOp::GreaterThanEqual,
@@ -1634,6 +1658,7 @@ mod tests {
                             vec![0x10, 0x20, 0x30, 0x40, 0x50, 0x60, 0x70, 0x80].into()
                         )),
                     },
+                    reverse_span: 0..0,
                 }
             );
 
@@ -1665,11 +1690,13 @@ mod tests {
                     lhs: IndexExpr {
                         identifier: IdentifierExpr::Field(field("http.host").to_owned()),
                         indexes: vec![],
+                        reverse_span: 0..0,
                     },
                     op: ComparisonOpExpr::Ordering {
                         op: OrderingOp::LessThan,
                         rhs: ComparisonRhs::Literal(LiteralValue::Bytes(vec![0x12, 0x13].into(),)),
                     },
+                    reverse_span: 0..0,
                 }
             );
 
@@ -1689,13 +1716,15 @@ mod tests {
                 lhs: IndexExpr {
                     identifier: IdentifierExpr::Field(field("http.host").to_owned()),
                     indexes: vec![],
+                    reverse_span: 0..0,
                 },
                 op: ComparisonOpExpr::Ordering {
                     op: OrderingOp::Equal,
                     rhs: ComparisonRhs::Literal(LiteralValue::Bytes(
                         "example.org".to_owned().into()
                     ))
-                }
+                },
+                reverse_span: 0..0,
             }
         );
 
@@ -1728,11 +1757,13 @@ mod tests {
                 lhs: IndexExpr {
                     identifier: IdentifierExpr::Field(field("tcp.port").to_owned()),
                     indexes: vec![],
+                    reverse_span: 0..0,
                 },
                 op: ComparisonOpExpr::Int {
                     op: IntOp::BitwiseAnd,
                     rhs: IntRhs::Literal(1),
-                }
+                },
+                reverse_span: 0..0,
             }
         );
 
@@ -1763,12 +1794,14 @@ mod tests {
                 lhs: IndexExpr {
                     identifier: IdentifierExpr::Field(field("tcp.port").to_owned()),
                     indexes: vec![],
+                    reverse_span: 0..0,
                 },
                 op: ComparisonOpExpr::OneOf(LiteralSet::Int(vec![
                     80.into(),
                     443.into(),
                     (2082..=2083).into()
                 ])),
+                reverse_span: 0..0,
             }
         );
 
@@ -1818,6 +1851,7 @@ mod tests {
                 lhs: IndexExpr {
                     identifier: IdentifierExpr::Field(field("http.host").to_owned()),
                     indexes: vec![],
+                    reverse_span: 0..0,
                 },
                 op: ComparisonOpExpr::OneOf(LiteralSet::Bytes(
                     ["example.org", "example.com",]
@@ -1825,6 +1859,7 @@ mod tests {
                         .map(|s| (*s).to_string().into())
                         .collect()
                 )),
+                reverse_span: 0..0,
             }
         );
 
@@ -1865,6 +1900,7 @@ mod tests {
                 lhs: IndexExpr {
                     identifier: IdentifierExpr::Field(field("ip.addr").to_owned()),
                     indexes: vec![],
+                    reverse_span: 0..0,
                 },
                 op: ComparisonOpExpr::OneOf(LiteralSet::Ip(vec![
                     IpRange::Cidr(IpCidr::new([127, 0, 0, 0].into(), 8).unwrap()),
@@ -1873,6 +1909,7 @@ mod tests {
                         [10, 0, 0, 0].into()..=[10, 0, 255, 255].into()
                     )),
                 ])),
+                reverse_span: 0..0,
             }
         );
 
@@ -1921,8 +1958,10 @@ mod tests {
                 lhs: IndexExpr {
                     identifier: IdentifierExpr::Field(field("http.host").to_owned()),
                     indexes: vec![],
+                    reverse_span: 0..0,
                 },
-                op: ComparisonOpExpr::Contains("abc".to_owned().into())
+                op: ComparisonOpExpr::Contains("abc".to_owned().into()),
+                reverse_span: 0..0,
             }
         );
 
@@ -1955,8 +1994,10 @@ mod tests {
                 lhs: IndexExpr {
                     identifier: IdentifierExpr::Field(field("http.host").to_owned()),
                     indexes: vec![],
+                    reverse_span: 0..0,
                 },
                 op: ComparisonOpExpr::Contains(vec![0x6F, 0x72, 0x67].into()),
+                reverse_span: 0..0,
             }
         );
 
@@ -1989,11 +2030,13 @@ mod tests {
                 lhs: IndexExpr {
                     identifier: IdentifierExpr::Field(field("tcp.port").to_owned()),
                     indexes: vec![],
+                    reverse_span: 0..0,
                 },
                 op: ComparisonOpExpr::Ordering {
                     op: OrderingOp::LessThan,
                     rhs: ComparisonRhs::Literal(LiteralValue::Int(8000))
                 },
+                reverse_span: 0..0,
             }
         );
 
@@ -2024,14 +2067,17 @@ mod tests {
                 lhs: IndexExpr {
                     identifier: IdentifierExpr::Field(field("tcp.port").to_owned()),
                     indexes: vec![],
+                    reverse_span: 0..0,
                 },
                 op: ComparisonOpExpr::Ordering {
                     op: OrderingOp::LessThan,
                     rhs: ComparisonRhs::Index(ScalarExpr(IndexExpr {
                         identifier: IdentifierExpr::Field(field("_tcp_limit").to_owned()),
                         indexes: vec![],
+                        reverse_span: 0..0,
                     })),
                 },
+                reverse_span: 0..0,
             }
         );
 
@@ -2383,6 +2429,7 @@ mod tests {
         let index = IndexExpr {
             identifier: IdentifierExpr::Field(field("tcp.limit").to_owned()),
             indexes: vec![],
+            reverse_span: 0..0,
         };
         let scalar = ScalarExpr::try_from(index.clone()).unwrap();
         assert_eq!(scalar.as_index_expr(), &index);
@@ -2399,6 +2446,7 @@ mod tests {
         let bytes = IndexExpr {
             identifier: IdentifierExpr::Field(field("http.host").to_owned()),
             indexes: vec![],
+            reverse_span: 0..0,
         };
         let scalar_bytes = ScalarExpr::try_from(bytes.clone()).unwrap();
         assert_eq!(scalar_bytes.get_type(), Type::Bytes);
@@ -2418,6 +2466,7 @@ mod tests {
         let ip = IndexExpr {
             identifier: IdentifierExpr::Field(field("ip.addr").to_owned()),
             indexes: vec![],
+            reverse_span: 0..0,
         };
         let scalar_ip = ScalarExpr::try_from(ip.clone()).unwrap();
         assert_eq!(scalar_ip.get_type(), Type::Ip);
@@ -2433,6 +2482,7 @@ mod tests {
         let bool_expr = IndexExpr {
             identifier: IdentifierExpr::Field(field("ssl").to_owned()),
             indexes: vec![],
+            reverse_span: 0..0,
         };
         assert_eq!(
             ScalarExpr::try_from(bool_expr),
@@ -2445,6 +2495,7 @@ mod tests {
         let mapped = IndexExpr {
             identifier: IdentifierExpr::Field(field("tcp.ports").to_owned()),
             indexes: vec![FieldIndex::MapEach],
+            reverse_span: 0..0,
         };
         assert_eq!(
             ScalarExpr::try_from(mapped),
@@ -2468,6 +2519,7 @@ mod tests {
         let index = IndexExpr {
             identifier: IdentifierExpr::Field(field("tcp.limit").to_owned()),
             indexes: vec![],
+            reverse_span: 0..0,
         };
         let mut scalar = ScalarExpr::try_from(index.clone()).unwrap();
         AddMapEach.visit_scalar_expr(&mut scalar);
@@ -2806,8 +2858,10 @@ mod tests {
                 lhs: IndexExpr {
                     identifier: IdentifierExpr::Field(field("http.cookies").to_owned()),
                     indexes: vec![FieldIndex::ArrayIndex(0)],
+                    reverse_span: 0..0,
                 },
                 op: ComparisonOpExpr::Contains("abc".to_owned().into()),
+                reverse_span: 0..0,
             }
         );
 
@@ -2833,8 +2887,10 @@ mod tests {
                 lhs: IndexExpr {
                     identifier: IdentifierExpr::Field(field("http.headers").to_owned()),
                     indexes: vec![FieldIndex::MapKey("host".to_string())],
+                    reverse_span: 0..0,
                 },
                 op: ComparisonOpExpr::Contains("abc".to_owned().into()),
+                reverse_span: 0..0,
             }
         );
 
@@ -2883,17 +2939,20 @@ mod tests {
                         args: vec![FunctionCallArgExpr::IndexExpr(IndexExpr {
                             identifier: IdentifierExpr::Field(field("http.host").to_owned()),
                             indexes: vec![],
+                            reverse_span: 0..0,
                         })],
                         context: None,
                     }),
                     indexes: vec![],
+                    reverse_span: 0..0,
                 },
                 op: ComparisonOpExpr::Ordering {
                     op: OrderingOp::Equal,
                     rhs: ComparisonRhs::Literal(LiteralValue::Bytes(
                         "example.org".to_owned().into()
                     ))
-                }
+                },
+                reverse_span: 0..0,
             }
         );
 
@@ -2941,17 +3000,20 @@ mod tests {
                         args: vec![FunctionCallArgExpr::IndexExpr(IndexExpr {
                             identifier: IdentifierExpr::Field(field("http.host").to_owned()),
                             indexes: vec![],
+                            reverse_span: 0..0,
                         })],
                         context: None,
                     }),
                     indexes: vec![],
+                    reverse_span: 0..0,
                 },
                 op: ComparisonOpExpr::Ordering {
                     op: OrderingOp::Equal,
                     rhs: ComparisonRhs::Literal(LiteralValue::Bytes(
                         "example.org".to_owned().into()
                     ))
-                }
+                },
+                reverse_span: 0..0,
             }
         );
 
@@ -2996,13 +3058,15 @@ mod tests {
                 lhs: IndexExpr {
                     identifier: IdentifierExpr::Field(field("http.cookies").to_owned()),
                     indexes: vec![FieldIndex::ArrayIndex(0)],
+                    reverse_span: 0..0,
                 },
                 op: ComparisonOpExpr::Ordering {
                     op: OrderingOp::Equal,
                     rhs: ComparisonRhs::Literal(LiteralValue::Bytes(
                         "example.org".to_owned().into()
                     ))
-                }
+                },
+                reverse_span: 0..0,
             }
         );
 
@@ -3034,13 +3098,15 @@ mod tests {
                 lhs: IndexExpr {
                     identifier: IdentifierExpr::Field(field("http.cookies").to_owned()),
                     indexes: vec![FieldIndex::ArrayIndex(0)],
+                    reverse_span: 0..0,
                 },
                 op: ComparisonOpExpr::Ordering {
                     op: OrderingOp::NotEqual,
                     rhs: ComparisonRhs::Literal(LiteralValue::Bytes(
                         "example.org".to_owned().into()
                     ))
-                }
+                },
+                reverse_span: 0..0,
             }
         );
 
@@ -3072,13 +3138,15 @@ mod tests {
                 lhs: IndexExpr {
                     identifier: IdentifierExpr::Field(field("http.headers").to_owned()),
                     indexes: vec![FieldIndex::MapKey("missing".into())],
+                    reverse_span: 0..0,
                 },
                 op: ComparisonOpExpr::Ordering {
                     op: OrderingOp::Equal,
                     rhs: ComparisonRhs::Literal(LiteralValue::Bytes(
                         "example.org".to_owned().into()
                     ))
-                }
+                },
+                reverse_span: 0..0,
             }
         );
 
@@ -3110,13 +3178,15 @@ mod tests {
                 lhs: IndexExpr {
                     identifier: IdentifierExpr::Field(field("http.headers").to_owned()),
                     indexes: vec![FieldIndex::MapKey("missing".into())],
+                    reverse_span: 0..0,
                 },
                 op: ComparisonOpExpr::Ordering {
                     op: OrderingOp::NotEqual,
                     rhs: ComparisonRhs::Literal(LiteralValue::Bytes(
                         "example.org".to_owned().into()
                     ))
-                }
+                },
+                reverse_span: 0..0,
             }
         );
 
@@ -3151,17 +3221,20 @@ mod tests {
                         args: vec![FunctionCallArgExpr::IndexExpr(IndexExpr {
                             identifier: IdentifierExpr::Field(field("http.host").to_owned()),
                             indexes: vec![],
+                            reverse_span: 0..0,
                         })],
                         context: None,
                     }),
                     indexes: vec![],
+                    reverse_span: 0..0,
                 },
                 op: ComparisonOpExpr::Ordering {
                     op: OrderingOp::Equal,
                     rhs: ComparisonRhs::Literal(LiteralValue::Bytes(
                         "example.org".to_owned().into()
                     ))
-                }
+                },
+                reverse_span: 0..0,
             }
         );
 
@@ -3207,6 +3280,7 @@ mod tests {
                             FunctionCallArgExpr::IndexExpr(IndexExpr {
                                 identifier: IdentifierExpr::Field(field("http.host").to_owned()),
                                 indexes: vec![],
+                                reverse_span: 0..0,
                             }),
                             FunctionCallArgExpr::Literal(LiteralValue::Bytes(BytesExpr::from(
                                 ".org".to_owned()
@@ -3215,13 +3289,15 @@ mod tests {
                         context: None,
                     }),
                     indexes: vec![],
+                    reverse_span: 0..0,
                 },
                 op: ComparisonOpExpr::Ordering {
                     op: OrderingOp::Equal,
                     rhs: ComparisonRhs::Literal(LiteralValue::Bytes(
                         "example.org".to_owned().into()
                     ))
-                }
+                },
+                reverse_span: 0..0,
             }
         );
 
@@ -3274,22 +3350,26 @@ mod tests {
                             FunctionCallArgExpr::IndexExpr(IndexExpr {
                                 identifier: IdentifierExpr::Field(field("http.cookies").to_owned()),
                                 indexes: vec![],
+                                reverse_span: 0..0,
                             }),
                             FunctionCallArgExpr::IndexExpr(IndexExpr {
                                 identifier: IdentifierExpr::Field(
                                     field("array.of.bool").to_owned()
                                 ),
                                 indexes: vec![],
+                                reverse_span: 0..0,
                             }),
                         ],
                         context: None,
                     }),
                     indexes: vec![FieldIndex::ArrayIndex(0)],
+                    reverse_span: 0..0,
                 },
                 op: ComparisonOpExpr::Ordering {
                     op: OrderingOp::Equal,
                     rhs: ComparisonRhs::Literal(LiteralValue::Bytes("three".to_owned().into()))
-                }
+                },
+                reverse_span: 0..0,
             }
         );
 
@@ -3349,6 +3429,7 @@ mod tests {
                             FunctionCallArgExpr::IndexExpr(IndexExpr {
                                 identifier: IdentifierExpr::Field(field("http.cookies").to_owned()),
                                 indexes: vec![FieldIndex::MapEach],
+                                reverse_span: 0..0,
                             }),
                             FunctionCallArgExpr::Literal(LiteralValue::Bytes(BytesExpr::from(
                                 "-cf".to_owned()
@@ -3357,11 +3438,13 @@ mod tests {
                         context: None,
                     }),
                     indexes: vec![FieldIndex::ArrayIndex(2)],
+                    reverse_span: 0..0,
                 },
                 op: ComparisonOpExpr::Ordering {
                     op: OrderingOp::Equal,
                     rhs: ComparisonRhs::Literal(LiteralValue::Bytes("three-cf".to_owned().into()))
-                }
+                },
+                reverse_span: 0..0,
             }
         );
 
@@ -3418,6 +3501,7 @@ mod tests {
                             FunctionCallArgExpr::IndexExpr(IndexExpr {
                                 identifier: IdentifierExpr::Field(field("http.headers").to_owned()),
                                 indexes: vec![FieldIndex::MapEach],
+                                reverse_span: 0..0,
                             }),
                             FunctionCallArgExpr::Literal(LiteralValue::Bytes(BytesExpr::from(
                                 "-cf".to_owned()
@@ -3426,12 +3510,14 @@ mod tests {
                         context: None,
                     }),
                     indexes: vec![FieldIndex::ArrayIndex(2)],
+                    reverse_span: 0..0,
                 },
                 op: ComparisonOpExpr::OneOf(LiteralSet::Bytes(vec![
                     "one-cf".to_owned().into(),
                     "two-cf".to_owned().into(),
                     "three-cf".to_owned().into()
-                ]))
+                ])),
+                reverse_span: 0..0,
             }
         );
 
@@ -3569,11 +3655,13 @@ mod tests {
                 lhs: IndexExpr {
                     identifier: IdentifierExpr::Field(field("http.cookies").to_owned()),
                     indexes: vec![FieldIndex::MapEach],
+                    reverse_span: 0..0,
                 },
                 op: ComparisonOpExpr::Ordering {
                     op: OrderingOp::Equal,
                     rhs: ComparisonRhs::Literal(LiteralValue::Bytes("three".to_owned().into()))
-                }
+                },
+                reverse_span: 0..0,
             }
         );
 
@@ -3603,11 +3691,13 @@ mod tests {
                 lhs: IndexExpr {
                     identifier: IdentifierExpr::Field(field("http.headers").to_owned()),
                     indexes: vec![FieldIndex::MapEach],
+                    reverse_span: 0..0,
                 },
                 op: ComparisonOpExpr::Ordering {
                     op: OrderingOp::Equal,
                     rhs: ComparisonRhs::Literal(LiteralValue::Bytes("three".to_owned().into()))
-                }
+                },
+                reverse_span: 0..0,
             }
         );
 
@@ -3664,6 +3754,7 @@ mod tests {
                             FunctionCallArgExpr::IndexExpr(IndexExpr {
                                 identifier: IdentifierExpr::Field(field("http.cookies").to_owned()),
                                 indexes: vec![FieldIndex::MapEach],
+                                reverse_span: 0..0,
                             }),
                             FunctionCallArgExpr::Literal(LiteralValue::Bytes(BytesExpr::from(
                                 "-cf".to_owned()
@@ -3672,11 +3763,13 @@ mod tests {
                         context: None,
                     }),
                     indexes: vec![FieldIndex::MapEach],
+                    reverse_span: 0..0,
                 },
                 op: ComparisonOpExpr::Ordering {
                     op: OrderingOp::Equal,
                     rhs: ComparisonRhs::Literal(LiteralValue::Bytes("three-cf".to_owned().into()))
-                }
+                },
+                reverse_span: 0..0,
             }
         );
 
@@ -3731,15 +3824,18 @@ mod tests {
                         args: vec![FunctionCallArgExpr::IndexExpr(IndexExpr {
                             identifier: IdentifierExpr::Field(field("http.cookies").to_owned()),
                             indexes: vec![FieldIndex::MapEach],
+                            reverse_span: 0..0,
                         }),],
                         context: None,
                     }),
                     indexes: vec![FieldIndex::MapEach],
+                    reverse_span: 0..0,
                 },
                 op: ComparisonOpExpr::Ordering {
                     op: OrderingOp::GreaterThan,
                     rhs: ComparisonRhs::Literal(LiteralValue::Int(3)),
-                }
+                },
+                reverse_span: 0..0,
             }
         );
 
@@ -3861,11 +3957,13 @@ mod tests {
                 lhs: IndexExpr {
                     identifier: IdentifierExpr::Field(field("tcp.port").to_owned()),
                     indexes: vec![],
+                    reverse_span: 0..0,
                 },
                 op: ComparisonOpExpr::InList {
                     list: list.to_owned(),
                     name: ListName::from("even".to_string())
-                }
+                },
+                reverse_span: 0..0,
             }
         );
 
@@ -3895,11 +3993,13 @@ mod tests {
                 lhs: IndexExpr {
                     identifier: IdentifierExpr::Field(field("tcp.port").to_owned()),
                     indexes: vec![],
+                    reverse_span: 0..0,
                 },
                 op: ComparisonOpExpr::InList {
                     list: list.to_owned(),
                     name: ListName::from("odd".to_string()),
-                }
+                },
+                reverse_span: 0..0,
             }
         );
         let expr = expr.compile();
@@ -3930,13 +4030,16 @@ mod tests {
                         lhs: IndexExpr {
                             identifier: IdentifierExpr::Field(field("tcp.ports").to_owned()),
                             indexes: vec![FieldIndex::MapEach],
+                            reverse_span: 0..0,
                         },
                         op: ComparisonOpExpr::InList {
                             list: list.to_owned(),
                             name: ListName::from("even".to_string()),
                         },
+                        reverse_span: 0..0,
                     }
                 ))),
+                reverse_span: 0..0,
             }
         );
 
@@ -4010,11 +4113,13 @@ mod tests {
                 lhs: IndexExpr {
                     identifier: IdentifierExpr::Field(field("http.parts").to_owned()),
                     indexes: vec![FieldIndex::MapEach, FieldIndex::MapEach],
+                    reverse_span: 0..0,
                 },
                 op: ComparisonOpExpr::Ordering {
                     op: OrderingOp::Equal,
                     rhs: ComparisonRhs::Literal(LiteralValue::Bytes("[5][5]".to_owned().into()))
-                }
+                },
+                reverse_span: 0..0,
             }
         );
 
@@ -4037,11 +4142,13 @@ mod tests {
                 lhs: IndexExpr {
                     identifier: IdentifierExpr::Field(field("http.parts").to_owned()),
                     indexes: vec![FieldIndex::ArrayIndex(5), FieldIndex::MapEach],
+                    reverse_span: 0..0,
                 },
                 op: ComparisonOpExpr::Ordering {
                     op: OrderingOp::Equal,
                     rhs: ComparisonRhs::Literal(LiteralValue::Bytes("[5][5]".to_owned().into()))
-                }
+                },
+                reverse_span: 0..0,
             }
         );
 
@@ -4064,11 +4171,13 @@ mod tests {
                 lhs: IndexExpr {
                     identifier: IdentifierExpr::Field(field("http.parts").to_owned()),
                     indexes: vec![FieldIndex::MapEach, FieldIndex::ArrayIndex(5)],
+                    reverse_span: 0..0,
                 },
                 op: ComparisonOpExpr::Ordering {
                     op: OrderingOp::Equal,
                     rhs: ComparisonRhs::Literal(LiteralValue::Bytes("[5][5]".to_owned().into()))
-                }
+                },
+                reverse_span: 0..0,
             }
         );
 
@@ -4141,6 +4250,7 @@ mod tests {
                 lhs: IndexExpr {
                     identifier: IdentifierExpr::Field(field("http.host").to_owned()),
                     indexes: vec![],
+                    reverse_span: 0..0,
                 },
                 op: ComparisonOpExpr::Ordering {
                     op: OrderingOp::Equal,
@@ -4149,6 +4259,7 @@ mod tests {
                         BytesFormat::Raw(3),
                     ))),
                 },
+                reverse_span: 0..0,
             }
         );
 
@@ -4179,8 +4290,10 @@ mod tests {
                 lhs: IndexExpr {
                     identifier: IdentifierExpr::Field(field("http.host").to_owned()),
                     indexes: vec![],
+                    reverse_span: 0..0,
                 },
                 op: ComparisonOpExpr::Matches(r),
+                reverse_span: 0..0,
             }
         );
 
@@ -4214,8 +4327,10 @@ mod tests {
                 lhs: IndexExpr {
                     identifier: IdentifierExpr::Field(field("http.host").to_owned()),
                     indexes: vec![],
+                    reverse_span: 0..0,
                 },
                 op: ComparisonOpExpr::Wildcard(wildcard),
+                reverse_span: 0..0,
             }
         );
 
@@ -4259,8 +4374,10 @@ mod tests {
                 lhs: IndexExpr {
                     identifier: IdentifierExpr::Field(field("http.host").to_owned()),
                     indexes: vec![],
+                    reverse_span: 0..0,
                 },
                 op: ComparisonOpExpr::StrictWildcard(wildcard),
+                reverse_span: 0..0,
             }
         );
 
@@ -4302,6 +4419,7 @@ mod tests {
                             FunctionCallArgExpr::IndexExpr(IndexExpr {
                                 identifier: IdentifierExpr::Field(field("http.host").to_owned()),
                                 indexes: vec![],
+                                reverse_span: 0..0,
                             }),
                             FunctionCallArgExpr::Literal(LiteralValue::Bytes(BytesExpr::new(
                                 "cd".as_bytes(),
@@ -4311,6 +4429,7 @@ mod tests {
                         context: None,
                     }),
                     indexes: vec![],
+                    reverse_span: 0..0,
                 },
                 op: ComparisonOpExpr::Ordering {
                     op: OrderingOp::Equal,
@@ -4318,7 +4437,8 @@ mod tests {
                         "abcd".as_bytes(),
                         BytesFormat::Raw(2)
                     )))
-                }
+                },
+                reverse_span: 0..0,
             }
         );
 

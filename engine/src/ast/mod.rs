@@ -11,11 +11,12 @@ use self::parse::FilterParser;
 use self::visitor::{UsesListVisitor, UsesVisitor, Visitor, VisitorMut};
 use crate::compiler::{Compiler, DefaultCompiler};
 use crate::filter::{CompiledExpr, CompiledValueExpr, Filter, FilterValue};
-use crate::lex::{LexErrorKind, LexResult, LexWith};
+use crate::lex::{LexErrorKind, LexResult, LexWith, span_reverse_range};
 use crate::scheme::{Scheme, UnknownFieldError};
 use crate::types::{GetType, LhsValue, Type, TypeMismatchError};
 use serde::Serialize;
 use std::fmt::{self, Debug};
+use std::ops::Range;
 
 /// Trait used to represent node that evaluates to a [`bool`] (or a [`Vec<bool>`]).
 pub trait Expr:
@@ -165,7 +166,7 @@ impl FilterAst {
 }
 
 /// The root expression of a parsed value AST.
-#[derive(PartialEq, Eq, Serialize, Clone, Hash)]
+#[derive(derive_more::PartialEq, derive_more::Eq, Serialize, Clone, Hash)]
 #[serde(untagged)]
 pub enum FilterValueExpr {
     /// An indexed field or function-call expression.
@@ -176,6 +177,10 @@ pub enum FilterValueExpr {
         op: QuantifierOp,
         /// The boolean array expression to reduce.
         arg: Box<QuantifierArgExpr>,
+        /// Range relative to the input end
+        #[serde(skip)]
+        #[eq(skip)]
+        reverse_span: Range<usize>,
     },
 }
 
@@ -183,7 +188,7 @@ impl Debug for FilterValueExpr {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Index(expr) => expr.fmt(f),
-            Self::Quantifier { op, arg } => f
+            Self::Quantifier { op, arg, .. } => f
                 .debug_struct("Quantifier")
                 .field("op", op)
                 .field("arg", arg)
@@ -197,9 +202,16 @@ impl<'i, 's> LexWith<'i, &FilterParser<'s>> for FilterValueExpr {
         match IndexExpr::lex_with(input, parser) {
             Ok((expr, rest)) => Ok((FilterValueExpr::Index(expr), rest)),
             Err(index_err) => match LogicalExpr::lex_quantifier(input, parser) {
-                Some(result) => {
-                    result.map(|((op, arg), rest)| (FilterValueExpr::Quantifier { op, arg }, rest))
-                }
+                Some(result) => result.map(|((op, arg), rest)| {
+                    (
+                        FilterValueExpr::Quantifier {
+                            op,
+                            arg,
+                            reverse_span: span_reverse_range(input, rest),
+                        },
+                        rest,
+                    )
+                }),
                 None => Err(index_err),
             },
         }
@@ -224,8 +236,16 @@ impl ValueExpr for FilterValueExpr {
     fn compile_with_compiler<C: Compiler>(self, compiler: &mut C) -> CompiledValueExpr<C::U> {
         match self {
             Self::Index(expr) => compiler.compile_index_expr(expr),
-            Self::Quantifier { op, arg } => {
-                match compiler.compile_logical_expr(LogicalExpr::Quantifier { op, arg }) {
+            Self::Quantifier {
+                op,
+                arg,
+                reverse_span,
+            } => {
+                match compiler.compile_logical_expr(LogicalExpr::Quantifier {
+                    op,
+                    arg,
+                    reverse_span,
+                }) {
                     CompiledExpr::One(expr) => {
                         CompiledValueExpr::new(move |ctx| LhsValue::from(expr.execute(ctx)).into())
                     }

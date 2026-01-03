@@ -23,6 +23,7 @@ name = "bench"
 backtrace.workspace = true
 cfg-if.workspace = true
 cidr.workspace = true
+derive_more.workspace = true
 dyn-clone.workspace = true
 erased-serde.workspace = true
 fnv.workspace = true

@@ -5,12 +5,15 @@ use super::visitor::{Visitor, VisitorMut};
 use crate::compiler::Compiler;
 use crate::execution_context::ExecutionContext;
 use crate::filter::{CompiledExpr, CompiledOneExpr, CompiledValueExpr, CompiledVecExpr};
-use crate::lex::{Lex, LexErrorKind, LexResult, LexWith, expect, skip_space, span};
+use crate::lex::{
+    Lex, LexErrorKind, LexResult, LexWith, expect, skip_space, span, span_reverse_range,
+};
 use crate::lhs_types::{Array, Map, TypedArray};
 use crate::scheme::{FieldIndex, IndexAccessError};
 use crate::types::{GetType, IntoIter, LhsValue, Type};
 use serde::ser::SerializeSeq;
 use serde::{Serialize, Serializer};
+use std::ops::Range;
 
 const BOOL_ARRAY: TypedArray<'_, bool> = TypedArray::new();
 
@@ -20,12 +23,16 @@ const BOOL_ARRAY: TypedArray<'_, bool> = TypedArray::new();
 /// as a map of string to list of strings, then the expression
 /// `http.request.headers["Cookie"][0]` would have an IdentifierExpr
 /// of `http.request.headers` and indexes `["Cookie", 0]`.
-#[derive(Debug, PartialEq, Eq, Clone, Hash)]
+#[derive(Debug, derive_more::PartialEq, derive_more::Eq, Clone, Hash)]
 pub struct IndexExpr {
     /// The accessed identifier.
     pub identifier: IdentifierExpr,
     /// The list of indexes access.
     pub indexes: Vec<FieldIndex>,
+
+    /// Range relative to the input end
+    #[eq(skip)]
+    pub reverse_span: Range<usize>,
 }
 
 #[allow(clippy::manual_ok_err)]
@@ -62,6 +69,7 @@ impl ValueExpr for IndexExpr {
         let Self {
             identifier,
             indexes,
+            ..
         } = self;
 
         let last = match map_each_count {
@@ -150,6 +158,7 @@ impl IndexExpr {
         let Self {
             identifier,
             indexes,
+            ..
         } = self;
         let indexes = simplify_indexes(indexes);
         match identifier {
@@ -205,6 +214,7 @@ impl IndexExpr {
         let Self {
             identifier,
             indexes,
+            ..
         } = self;
         let indexes = simplify_indexes(indexes);
         match identifier {
@@ -250,6 +260,7 @@ impl IndexExpr {
         let Self {
             identifier,
             indexes,
+            ..
         } = self;
         match identifier {
             IdentifierExpr::Field(f) => CompiledVecExpr::new(move |ctx| {
@@ -330,6 +341,7 @@ impl IndexExpr {
 
 impl<'i, 's> LexWith<'i, &FilterParser<'s>> for IndexExpr {
     fn lex_with(mut input: &'i str, parser: &FilterParser<'s>) -> LexResult<'i, Self> {
+        let original_input = input;
         let (identifier, rest) = IdentifierExpr::lex_with(input, parser)?;
 
         let mut current_type = identifier.get_type();
@@ -404,6 +416,7 @@ impl<'i, 's> LexWith<'i, &FilterParser<'s>> for IndexExpr {
             IndexExpr {
                 identifier,
                 indexes,
+                reverse_span: span_reverse_range(original_input, input),
             },
             input,
         ))
@@ -618,6 +631,7 @@ mod tests {
                 IndexExpr {
                     identifier: IdentifierExpr::Field(SCHEME.get_field("test").unwrap().to_owned()),
                     indexes: vec![FieldIndex::ArrayIndex(i)],
+                    reverse_span: 0..0,
                 }
             );
         }
@@ -643,6 +657,7 @@ mod tests {
             IndexExpr {
                 identifier: IdentifierExpr::Field(SCHEME.get_field("map").unwrap().to_owned()),
                 indexes: vec![FieldIndex::MapKey("a".to_string())],
+                reverse_span: 0..0,
             }
         );
 
@@ -651,6 +666,7 @@ mod tests {
             IndexExpr {
                 identifier: IdentifierExpr::Field(SCHEME.get_field("map").unwrap().to_owned()),
                 indexes: vec![FieldIndex::MapKey("😍".to_string())],
+                reverse_span: 0..0,
             }
         );
     }
@@ -682,10 +698,12 @@ mod tests {
                             SCHEME.get_field("test").unwrap().to_owned()
                         ),
                         indexes: vec![FieldIndex::ArrayIndex(0)],
+                        reverse_span: 0..0,
                     })],
                     context: None
                 }),
                 indexes: vec![FieldIndex::ArrayIndex(0)],
+                reverse_span: 0..0,
             }
         );
 
@@ -712,10 +730,12 @@ mod tests {
                             SCHEME.get_field("test").unwrap().to_owned()
                         ),
                         indexes: vec![FieldIndex::ArrayIndex(0)],
+                        reverse_span: 0..0,
                     })],
                     context: None
                 }),
                 indexes: vec![FieldIndex::MapEach],
+                reverse_span: 0..0,
             }
         );
 
@@ -745,10 +765,12 @@ mod tests {
                             SCHEME.get_field("test").unwrap().to_owned()
                         ),
                         indexes: vec![FieldIndex::ArrayIndex(0)],
+                        reverse_span: 0..0,
                     })],
                     context: None
                 }),
                 indexes: vec![FieldIndex::MapEach, FieldIndex::MapEach],
+                reverse_span: 0..0,
             }
         );
 
@@ -781,10 +803,12 @@ mod tests {
                             SCHEME.get_field("test").unwrap().to_owned()
                         ),
                         indexes: vec![FieldIndex::ArrayIndex(0)],
+                        reverse_span: 0..0,
                     })],
                     context: None
                 }),
                 indexes: vec![FieldIndex::MapEach, FieldIndex::ArrayIndex(0)],
+                reverse_span: 0..0,
             }
         );
 
@@ -817,10 +841,12 @@ mod tests {
                             SCHEME.get_field("test").unwrap().to_owned()
                         ),
                         indexes: vec![FieldIndex::ArrayIndex(0)],
+                        reverse_span: 0..0,
                     })],
                     context: None
                 }),
                 indexes: vec![FieldIndex::ArrayIndex(0), FieldIndex::MapEach],
+                reverse_span: 0..0,
             }
         );
 
@@ -853,6 +879,7 @@ mod tests {
             IndexExpr {
                 identifier: IdentifierExpr::Field(SCHEME.get_field("test2").unwrap().to_owned()),
                 indexes: vec![FieldIndex::ArrayIndex(0), FieldIndex::MapEach],
+                reverse_span: 0..0,
             }
         );
 
@@ -867,6 +894,7 @@ mod tests {
             IndexExpr {
                 identifier: IdentifierExpr::Field(SCHEME.get_field("test2").unwrap().to_owned()),
                 indexes: vec![FieldIndex::MapEach, FieldIndex::ArrayIndex(0)],
+                reverse_span: 0..0,
             }
         );
 
@@ -881,6 +909,7 @@ mod tests {
             IndexExpr {
                 identifier: IdentifierExpr::Field(SCHEME.get_field("test2").unwrap().to_owned()),
                 indexes: vec![FieldIndex::MapEach, FieldIndex::MapEach],
+                reverse_span: 0..0,
             }
         );
 
