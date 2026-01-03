@@ -5,7 +5,9 @@ use super::visitor::{Visitor, VisitorMut};
 use crate::ast::index_expr::{Compare, IndexExpr};
 use crate::compiler::Compiler;
 use crate::filter::CompiledExpr;
-use crate::lex::{Lex, LexErrorKind, LexResult, LexWith, expect, skip_space, span};
+use crate::lex::{
+    Lex, LexErrorKind, LexResult, LexWith, expect, skip_space, span, span_reverse_range,
+};
 use crate::range_set::RangeSet;
 use crate::rhs_types::{BytesExpr, ExplicitIpRange, ListName, Regex, Wildcard};
 use crate::scheme::{Field, Identifier, List};
@@ -18,6 +20,7 @@ use sliceslice::MemchrSearcher;
 use std::cmp::Ordering;
 use std::collections::BTreeSet;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+use std::ops::Range;
 #[cfg(any(target_arch = "x86", target_arch = "x86_64", target_arch = "wasm32"))]
 use std::sync::LazyLock;
 
@@ -272,7 +275,7 @@ impl GetType for IdentifierExpr {
 }
 
 /// Comparison expression
-#[derive(Debug, PartialEq, Eq, Clone, Hash, Serialize)]
+#[derive(Debug, derive_more::PartialEq, derive_more::Eq, Clone, Hash, Serialize)]
 pub struct ComparisonExpr {
     /// Left-hand side of the comparison expression
     pub lhs: IndexExpr,
@@ -280,6 +283,11 @@ pub struct ComparisonExpr {
     /// Operator + right-hand side of the comparison expression
     #[serde(flatten)]
     pub op: ComparisonOpExpr,
+
+    /// Range relative to the input end
+    #[serde(skip)]
+    #[eq(skip)]
+    pub reverse_span: Range<usize>,
 }
 
 impl GetType for ComparisonExpr {
@@ -297,9 +305,12 @@ impl GetType for ComparisonExpr {
 
 impl<'i> LexWith<'i, &FilterParser<'_>> for ComparisonExpr {
     fn lex_with(input: &'i str, parser: &FilterParser<'_>) -> LexResult<'i, Self> {
-        let (lhs, input) = IndexExpr::lex_with(input, parser)?;
+        let (lhs, rest) = IndexExpr::lex_with(input, parser)?;
 
-        Self::lex_with_lhs(input, parser, lhs)
+        let (mut expr, rest) = Self::lex_with_lhs(rest, parser, lhs)?;
+        let reverse_span = span_reverse_range(input, rest);
+        expr.reverse_span = reverse_span;
+        Ok((expr, rest))
     }
 }
 
@@ -393,7 +404,15 @@ impl ComparisonExpr {
             }
         };
 
-        Ok((ComparisonExpr { lhs, op }, input))
+        Ok((
+            ComparisonExpr {
+                lhs,
+                op,
+                // Dummy span, gets replaced in lex_with
+                reverse_span: 0..0,
+            },
+            input,
+        ))
     }
 
     /// Retrieves the associated left hand side expression.
@@ -1069,7 +1088,8 @@ mod tests {
                     identifier: IdentifierExpr::Field(field("ssl").to_owned()),
                     indexes: vec![],
                 },
-                op: ComparisonOpExpr::IsTrue
+                op: ComparisonOpExpr::IsTrue,
+                reverse_span: 0..0
             }
         );
 
@@ -1106,6 +1126,7 @@ mod tests {
                         0x10, 0x20, 0x30, 0x40, 0x50, 0x60, 0x70, 0x80
                     ]))
                 },
+                reverse_span: 0..0
             }
         );
 
@@ -1161,6 +1182,7 @@ mod tests {
                             vec![0x10, 0x20, 0x30, 0x40, 0x50, 0x60, 0x70, 0x80].into()
                         ),
                     },
+                    reverse_span: 0..0,
                 }
             );
 
@@ -1197,6 +1219,7 @@ mod tests {
                         op: OrderingOp::LessThan,
                         rhs: RhsValue::Bytes(vec![0x12, 0x13].into()),
                     },
+                    reverse_span: 0..0
                 }
             );
 
@@ -1220,7 +1243,8 @@ mod tests {
                 op: ComparisonOpExpr::Ordering {
                     op: OrderingOp::Equal,
                     rhs: RhsValue::Bytes("example.org".to_owned().into())
-                }
+                },
+                reverse_span: 0..0
             }
         );
 
@@ -1257,7 +1281,8 @@ mod tests {
                 op: ComparisonOpExpr::Int {
                     op: IntOp::BitwiseAnd,
                     rhs: 1,
-                }
+                },
+                reverse_span: 0..0
             }
         );
 
@@ -1294,6 +1319,7 @@ mod tests {
                     443.into(),
                     (2082..=2083).into()
                 ])),
+                reverse_span: 0..0,
             }
         );
 
@@ -1350,6 +1376,7 @@ mod tests {
                         .map(|s| (*s).to_string().into())
                         .collect()
                 )),
+                reverse_span: 0..0,
             }
         );
 
@@ -1398,6 +1425,7 @@ mod tests {
                         [10, 0, 0, 0].into()..=[10, 0, 255, 255].into()
                     )),
                 ])),
+                reverse_span: 0..0,
             }
         );
 
@@ -1447,7 +1475,8 @@ mod tests {
                     identifier: IdentifierExpr::Field(field("http.host").to_owned()),
                     indexes: vec![],
                 },
-                op: ComparisonOpExpr::Contains("abc".to_owned().into())
+                op: ComparisonOpExpr::Contains("abc".to_owned().into()),
+                reverse_span: 0..0
             }
         );
 
@@ -1482,6 +1511,7 @@ mod tests {
                     indexes: vec![],
                 },
                 op: ComparisonOpExpr::Contains(vec![0x6F, 0x72, 0x67].into()),
+                reverse_span: 0..0,
             }
         );
 
@@ -1519,6 +1549,7 @@ mod tests {
                     op: OrderingOp::LessThan,
                     rhs: RhsValue::Int(8000)
                 },
+                reverse_span: 0..0
             }
         );
 
@@ -1551,6 +1582,7 @@ mod tests {
                     indexes: vec![FieldIndex::ArrayIndex(0)],
                 },
                 op: ComparisonOpExpr::Contains("abc".to_owned().into()),
+                reverse_span: 0..0
             }
         );
 
@@ -1578,6 +1610,7 @@ mod tests {
                     indexes: vec![FieldIndex::MapKey("host".to_string())],
                 },
                 op: ComparisonOpExpr::Contains("abc".to_owned().into()),
+                reverse_span: 0..0
             }
         );
 
@@ -1634,7 +1667,8 @@ mod tests {
                 op: ComparisonOpExpr::Ordering {
                     op: OrderingOp::Equal,
                     rhs: RhsValue::Bytes("example.org".to_owned().into())
-                }
+                },
+                reverse_span: 0..0
             }
         );
 
@@ -1690,7 +1724,8 @@ mod tests {
                 op: ComparisonOpExpr::Ordering {
                     op: OrderingOp::Equal,
                     rhs: RhsValue::Bytes("example.org".to_owned().into())
-                }
+                },
+                reverse_span: 0..0
             }
         );
 
@@ -1739,7 +1774,8 @@ mod tests {
                 op: ComparisonOpExpr::Ordering {
                     op: OrderingOp::Equal,
                     rhs: RhsValue::Bytes("example.org".to_owned().into())
-                }
+                },
+                reverse_span: 0..0
             }
         );
 
@@ -1775,7 +1811,8 @@ mod tests {
                 op: ComparisonOpExpr::Ordering {
                     op: OrderingOp::NotEqual,
                     rhs: RhsValue::Bytes("example.org".to_owned().into())
-                }
+                },
+                reverse_span: 0..0
             }
         );
 
@@ -1811,7 +1848,8 @@ mod tests {
                 op: ComparisonOpExpr::Ordering {
                     op: OrderingOp::Equal,
                     rhs: RhsValue::Bytes("example.org".to_owned().into())
-                }
+                },
+                reverse_span: 0..0
             }
         );
 
@@ -1847,7 +1885,8 @@ mod tests {
                 op: ComparisonOpExpr::Ordering {
                     op: OrderingOp::NotEqual,
                     rhs: RhsValue::Bytes("example.org".to_owned().into())
-                }
+                },
+                reverse_span: 0..0
             }
         );
 
@@ -1890,7 +1929,8 @@ mod tests {
                 op: ComparisonOpExpr::Ordering {
                     op: OrderingOp::Equal,
                     rhs: RhsValue::Bytes("example.org".to_owned().into())
-                }
+                },
+                reverse_span: 0..0
             }
         );
 
@@ -1948,7 +1988,8 @@ mod tests {
                 op: ComparisonOpExpr::Ordering {
                     op: OrderingOp::Equal,
                     rhs: RhsValue::Bytes("example.org".to_owned().into())
-                }
+                },
+                reverse_span: 0..0
             }
         );
 
@@ -2016,7 +2057,8 @@ mod tests {
                 op: ComparisonOpExpr::Ordering {
                     op: OrderingOp::Equal,
                     rhs: RhsValue::Bytes("three".to_owned().into())
-                }
+                },
+                reverse_span: 0..0
             }
         );
 
@@ -2088,7 +2130,8 @@ mod tests {
                 op: ComparisonOpExpr::Ordering {
                     op: OrderingOp::Equal,
                     rhs: RhsValue::Bytes("three-cf".to_owned().into())
-                }
+                },
+                reverse_span: 0..0
             }
         );
 
@@ -2158,7 +2201,8 @@ mod tests {
                     "one-cf".to_owned().into(),
                     "two-cf".to_owned().into(),
                     "three-cf".to_owned().into()
-                ]))
+                ])),
+                reverse_span: 0..0
             }
         );
 
@@ -2220,7 +2264,8 @@ mod tests {
                 op: ComparisonOpExpr::Ordering {
                     op: OrderingOp::Equal,
                     rhs: RhsValue::Bytes("three".to_owned().into())
-                }
+                },
+                reverse_span: 0..0
             }
         );
 
@@ -2254,7 +2299,8 @@ mod tests {
                 op: ComparisonOpExpr::Ordering {
                     op: OrderingOp::Equal,
                     rhs: RhsValue::Bytes("three".to_owned().into())
-                }
+                },
+                reverse_span: 0..0
             }
         );
 
@@ -2323,7 +2369,8 @@ mod tests {
                 op: ComparisonOpExpr::Ordering {
                     op: OrderingOp::Equal,
                     rhs: RhsValue::Bytes("three-cf".to_owned().into())
-                }
+                },
+                reverse_span: 0..0
             }
         );
 
@@ -2386,7 +2433,8 @@ mod tests {
                 op: ComparisonOpExpr::Ordering {
                     op: OrderingOp::GreaterThan,
                     rhs: RhsValue::Int(3),
-                }
+                },
+                reverse_span: 0..0
             }
         );
 
@@ -2512,7 +2560,8 @@ mod tests {
                 op: ComparisonOpExpr::InList {
                     list: list.to_owned(),
                     name: ListName::from("even".to_string())
-                }
+                },
+                reverse_span: 0..0
             }
         );
 
@@ -2546,7 +2595,8 @@ mod tests {
                 op: ComparisonOpExpr::InList {
                     list: list.to_owned(),
                     name: ListName::from("odd".to_string()),
-                }
+                },
+                reverse_span: 0..0
             }
         );
         let expr = expr.compile();
@@ -2586,13 +2636,15 @@ mod tests {
                                     list: list.to_owned(),
                                     name: ListName::from("even".to_string()),
                                 },
+                                reverse_span: 0..0
                             }
                         ))],
                         context: None,
                     }),
                     indexes: vec![],
                 },
-                op: ComparisonOpExpr::IsTrue
+                op: ComparisonOpExpr::IsTrue,
+                reverse_span: 0..0
             }
         );
 
@@ -2649,7 +2701,8 @@ mod tests {
                 op: ComparisonOpExpr::Ordering {
                     op: OrderingOp::Equal,
                     rhs: RhsValue::Bytes("[5][5]".to_owned().into())
-                }
+                },
+                reverse_span: 0..0
             }
         );
 
@@ -2676,7 +2729,8 @@ mod tests {
                 op: ComparisonOpExpr::Ordering {
                     op: OrderingOp::Equal,
                     rhs: RhsValue::Bytes("[5][5]".to_owned().into())
-                }
+                },
+                reverse_span: 0..0
             }
         );
 
@@ -2703,7 +2757,8 @@ mod tests {
                 op: ComparisonOpExpr::Ordering {
                     op: OrderingOp::Equal,
                     rhs: RhsValue::Bytes("[5][5]".to_owned().into())
-                }
+                },
+                reverse_span: 0..0
             }
         );
 
@@ -2781,6 +2836,7 @@ mod tests {
                     op: OrderingOp::Equal,
                     rhs: RhsValue::Bytes(BytesExpr::new("ab".as_bytes(), BytesFormat::Raw(3))),
                 },
+                reverse_span: 0..0
             }
         );
 
@@ -2813,6 +2869,7 @@ mod tests {
                     indexes: vec![],
                 },
                 op: ComparisonOpExpr::Matches(r),
+                reverse_span: 0..0
             }
         );
 
@@ -2848,6 +2905,7 @@ mod tests {
                     indexes: vec![],
                 },
                 op: ComparisonOpExpr::Wildcard(wildcard),
+                reverse_span: 0..0
             }
         );
 
@@ -2893,6 +2951,7 @@ mod tests {
                     indexes: vec![],
                 },
                 op: ComparisonOpExpr::StrictWildcard(wildcard),
+                reverse_span: 0..0
             }
         );
 
@@ -2947,7 +3006,8 @@ mod tests {
                 op: ComparisonOpExpr::Ordering {
                     op: OrderingOp::Equal,
                     rhs: RhsValue::Bytes(BytesExpr::new("abcd".as_bytes(), BytesFormat::Raw(2)))
-                }
+                },
+                reverse_span: 0..0
             }
         );
 

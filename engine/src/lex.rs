@@ -4,6 +4,7 @@ use crate::scheme::{IndexAccessError, UnknownFieldError, UnknownFunctionError};
 use crate::types::{Type, TypeMismatchError};
 use cidr::errors::NetworkParseError;
 use std::num::ParseIntError;
+use std::ops::Range;
 use thiserror::Error;
 
 #[derive(Debug, PartialEq, Error)]
@@ -270,6 +271,10 @@ macro_rules! lex_enum {
 
 pub fn span<'i>(input: &'i str, rest: &'i str) -> &'i str {
     &input[..input.len() - rest.len()]
+}
+
+pub fn span_reverse_range<'i>(input: &'i str, rest: &'i str) -> Range<usize> {
+    input.len()..rest.len()
 }
 
 pub fn take_while<'i, F: Fn(char) -> bool>(
