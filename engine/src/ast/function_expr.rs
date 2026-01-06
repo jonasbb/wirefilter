@@ -16,7 +16,10 @@ use crate::{
         ExactSizeChain, FunctionArgs, FunctionDefinition, FunctionDefinitionContext, FunctionParam,
         FunctionParamError,
     },
-    lex::{Lex, LexError, LexErrorKind, LexResult, LexWith, expect, skip_space, span},
+    lex::{
+        Lex, LexError, LexErrorKind, LexResult, LexWith, expect, skip_space, span,
+        span_reverse_range,
+    },
     lhs_types::Array,
     scheme::Function,
     types::{GetType, LhsValue, RhsValue, Type},
@@ -149,33 +152,39 @@ impl<'i, 's> LexWith<'i, &FilterParser<'s>> for FunctionCallArgExpr {
                     && c3.is_some()
                     && c_is_field!(c3.unwrap()))
             {
-                let (lhs, input) = IndexExpr::lex_with(input, parser)?;
-                let lookahead = skip_space(input);
+                let (lhs, rest) = IndexExpr::lex_with(input, parser)?;
+                let lookahead = skip_space(rest);
                 if ComparisonOp::lex(lookahead).is_ok() {
-                    return ComparisonExpr::lex_with_lhs(input, parser, lhs).map(|(op, input)| {
-                        (
-                            FunctionCallArgExpr::Logical(LogicalExpr::Comparison(op)),
-                            input,
-                        )
-                    });
+                    return ComparisonExpr::lex_with_lhs(rest, parser, lhs).map(
+                        |(mut op, rest)| {
+                            let reverse_span = span_reverse_range(input, rest);
+                            op.reverse_span = reverse_span;
+                            (
+                                FunctionCallArgExpr::Logical(LogicalExpr::Comparison(op)),
+                                rest,
+                            )
+                        },
+                    );
                 } else {
-                    return Ok((FunctionCallArgExpr::IndexExpr(lhs), input));
+                    return Ok((FunctionCallArgExpr::IndexExpr(lhs), rest));
                 }
             }
         }
 
         // Fallback to blind parsing next argument
-        if let Ok((lhs, input)) = IndexExpr::lex_with(input, parser) {
-            let lookahead = skip_space(input);
+        if let Ok((lhs, rest)) = IndexExpr::lex_with(input, parser) {
+            let lookahead = skip_space(rest);
             if ComparisonOp::lex(lookahead).is_ok() {
-                return ComparisonExpr::lex_with_lhs(input, parser, lhs).map(|(op, input)| {
+                return ComparisonExpr::lex_with_lhs(rest, parser, lhs).map(|(mut op, rest)| {
+                    let reverse_span = span_reverse_range(input, rest);
+                    op.reverse_span = reverse_span;
                     (
                         FunctionCallArgExpr::Logical(LogicalExpr::Comparison(op)),
-                        input,
+                        rest,
                     )
                 });
             } else {
-                return Ok((FunctionCallArgExpr::IndexExpr(lhs), input));
+                return Ok((FunctionCallArgExpr::IndexExpr(lhs), rest));
             }
         }
 
