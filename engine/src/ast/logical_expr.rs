@@ -739,6 +739,7 @@ fn test() {
                 lhs: IndexExpr {
                     identifier: IdentifierExpr::Field(scheme.get_field("at").unwrap().to_owned()),
                     indexes: vec![FieldIndex::MapEach],
+                    reverse_span: 0..0,
                 },
                 op: ComparisonOpExpr::IsTrue,
                 reverse_span: 0..0
