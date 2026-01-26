@@ -714,6 +714,7 @@ mod tests {
                             SCHEME.get_field("http.host").unwrap().to_owned()
                         ),
                         indexes: vec![],
+                        reverse_span: 0..0,
                     }),
                     FunctionCallArgExpr::Literal(RhsValue::Int(1)),
                     FunctionCallArgExpr::Literal(RhsValue::Int(2)),
@@ -756,6 +757,7 @@ mod tests {
                         SCHEME.get_field("http.host").unwrap().to_owned()
                     ),
                     indexes: vec![],
+                    reverse_span: 0..0,
                 })],
                 context: None,
             },
@@ -790,6 +792,7 @@ mod tests {
                             SCHEME.get_field("http.host").unwrap().to_owned()
                         ),
                         indexes: vec![],
+                        reverse_span: 0..0,
                     }),
                     FunctionCallArgExpr::Literal(RhsValue::Int(1)),
                     FunctionCallArgExpr::Literal(RhsValue::Int(2)),
@@ -857,10 +860,12 @@ mod tests {
                                 SCHEME.get_field("http.host").unwrap().to_owned()
                             ),
                             indexes: vec![],
+                            reverse_span: 0..0,
                         })],
                         context: None,
                     }),
                     indexes: vec![],
+                    reverse_span: 0..0,
                 })]
                 .to_vec(),
                 context: None,
@@ -912,6 +917,7 @@ mod tests {
                                                 .to_owned()
                                         ),
                                         indexes: vec![],
+                                        reverse_span: 0..0,
                                     },
                                     op: ComparisonOpExpr::IsTrue,
                                     reverse_span: 0..0
@@ -925,6 +931,7 @@ mod tests {
                                                 .to_owned()
                                         ),
                                         indexes: vec![],
+                                        reverse_span: 0..0,
                                     },
                                     op: ComparisonOpExpr::IsTrue,
                                     reverse_span: 0..0
@@ -979,6 +986,7 @@ mod tests {
                             .to_owned()
                     ),
                     indexes: vec![FieldIndex::MapEach],
+                    reverse_span: 0..0,
                 })],
                 context: None,
             },
@@ -1010,6 +1018,7 @@ mod tests {
                         SCHEME.get_field("http.headers").unwrap().to_owned()
                     ),
                     indexes: vec![FieldIndex::MapEach],
+                    reverse_span: 0..0,
                 })],
                 context: None,
             },
@@ -1043,6 +1052,7 @@ mod tests {
                             .to_owned()
                     ),
                     indexes: vec![FieldIndex::MapEach],
+                    reverse_span: 0..0,
                 },
                 op: ComparisonOpExpr::Ordering {
                     op: OrderingOp::Equal,
@@ -1071,10 +1081,12 @@ mod tests {
                                             .to_owned()
                                     ),
                                     indexes: vec![FieldIndex::MapEach],
+                                    reverse_span: 0..0,
                                 })],
                                 context: None,
                             }),
                             indexes: vec![FieldIndex::MapEach],
+                            reverse_span: 0..0,
                         },
                         op: ComparisonOpExpr::Contains("c".to_string().into(),),
                         reverse_span: 0..0
@@ -1135,6 +1147,7 @@ mod tests {
                             .to_owned()
                     ),
                     indexes: vec![FieldIndex::MapEach],
+                    reverse_span: 0..0,
                 })],
                 context: None,
             },
@@ -1165,6 +1178,7 @@ mod tests {
                                         .to_owned()
                                 ),
                                 indexes: vec![FieldIndex::MapEach],
+                                reverse_span: 0..0,
                             },
                             op: ComparisonOpExpr::OneOf(RhsValues::Bytes(vec![
                                 "Cookie".to_owned().into(),
@@ -1228,6 +1242,7 @@ mod tests {
                                         .to_owned()
                                 ),
                                 indexes: vec![FieldIndex::MapEach],
+                                reverse_span: 0..0,
                             },
                             op: ComparisonOpExpr::OneOf(RhsValues::Bytes(vec![
                                 "Cookie".to_owned().into(),
@@ -1285,6 +1300,7 @@ mod tests {
                     FunctionCallArgExpr::IndexExpr(IndexExpr {
                         identifier: IdentifierExpr::Field(SCHEME.get_field("http.host").unwrap().to_owned()),
                         indexes: vec![],
+                        reverse_span: 0..0,
                     }),
                     FunctionCallArgExpr::Literal(RhsValue::Bytes(Bytes::new("this is a r##raw## string".as_bytes(), BytesFormat::Raw(0)))),
                     FunctionCallArgExpr::Literal(RhsValue::Bytes(Bytes::new("this is a new r##raw## string".as_bytes(), BytesFormat::Raw(0))))
@@ -1326,6 +1342,7 @@ mod tests {
                     FunctionCallArgExpr::IndexExpr(IndexExpr {
                         identifier: IdentifierExpr::Field(SCHEME.get_field("http.host").unwrap().to_owned()),
                         indexes: vec![],
+                        reverse_span: 0..0,
                     }),
                     FunctionCallArgExpr::Literal(RhsValue::Bytes(Bytes::new("this is a r##\"raw\"## string".as_bytes(), BytesFormat::Raw(3)))),
                     FunctionCallArgExpr::Literal(RhsValue::Bytes(Bytes::new("this is a new r##\"raw\"## string".as_bytes(), BytesFormat::Raw(3))))
