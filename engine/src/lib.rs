@@ -69,7 +69,7 @@ mod ast;
 mod compiler;
 mod execution_context;
 mod filter;
-mod functions;
+pub mod functions;
 mod lhs_types;
 mod list_matcher;
 mod panic;
