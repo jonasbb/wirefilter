@@ -16,6 +16,7 @@ use std::hash::{Hash, Hasher};
 use std::iter::Iterator;
 use std::sync::Arc;
 use thiserror::Error;
+use std::ops::Range;
 
 /// An error that occurs if two underlying [schemes](struct@Scheme)
 /// don't match.
@@ -263,11 +264,14 @@ impl PartialEq<FieldRef<'_>> for Field {
     }
 }
 
-#[derive(PartialEq, Eq, Clone, Copy, Hash)]
+#[derive(PartialEq, Eq, Clone, Hash)]
 /// A structure to represent a function inside a [`Scheme`](struct@Scheme).
 pub struct FunctionRef<'s> {
     scheme: &'s Scheme,
     index: usize,
+
+    /// Range relative to the input end
+    pub reverse_span: Range<usize>,
 }
 
 impl Serialize for FunctionRef<'_> {
@@ -328,6 +332,7 @@ impl<'s> FunctionRef<'s> {
         Function {
             scheme: self.scheme.clone(),
             index: self.index,
+            reverse_span: self.reverse_span.clone(),
         }
     }
 
@@ -344,6 +349,7 @@ impl<'s> FunctionRef<'s> {
         FunctionRef {
             scheme,
             index: self.index,
+            reverse_span: self.reverse_span.clone(),
         }
     }
 }
@@ -360,6 +366,9 @@ impl PartialEq<Function> for FunctionRef<'_> {
 pub struct Function {
     scheme: Scheme,
     index: usize,
+
+    /// Range relative to the input end
+    pub reverse_span: Range<usize>,
 }
 
 impl Serialize for Function {
@@ -404,6 +413,7 @@ impl Function {
         FunctionRef {
             scheme: &self.scheme,
             index: self.index,
+            reverse_span: self.reverse_span.clone(),
         }
     }
 }
@@ -861,6 +871,7 @@ impl<'s> Scheme {
             SchemeItem::Function(index) => Identifier::Function(FunctionRef {
                 scheme: self,
                 index,
+                reverse_span: 0..0,
             }),
         })
     }
@@ -908,6 +919,7 @@ impl<'s> Scheme {
         (0..self.inner.functions.len()).map(|index| FunctionRef {
             scheme: self,
             index,
+            reverse_span: 0..0,
         })
     }
 
