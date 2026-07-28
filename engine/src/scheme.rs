@@ -14,9 +14,9 @@ use std::convert::TryFrom;
 use std::fmt::{self, Debug, Formatter};
 use std::hash::{Hash, Hasher};
 use std::iter::Iterator;
+use std::ops::Range;
 use std::sync::Arc;
 use thiserror::Error;
-use std::ops::Range;
 
 /// An error that occurs if two underlying [schemes](struct@Scheme)
 /// don't match.

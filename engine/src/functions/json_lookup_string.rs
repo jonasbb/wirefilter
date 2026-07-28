@@ -1,8 +1,6 @@
-use std::iter;
-
-use crate::{LhsValue, Type};
-
 use super::{FunctionArgKind, FunctionArgs, FunctionDefinition};
+use crate::{LhsValue, Type};
+use std::iter;
 
 /// Returns the string value associated with the supplied key in `field`.
 ///
