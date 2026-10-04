@@ -91,6 +91,14 @@ impl FunctionDefinition for WildcardReplaceFunction {
                     .arg_kind()
                     .expect(super::FunctionArgKind::Literal)?;
                 next_param.expect_val_type(iter::once(Type::Bytes.into()))?;
+                next_param.expect_const_value::<&crate::BytesExpr, _>(|flags| {
+                    let flags = std::str::from_utf8(flags)
+                        .map_err(|_| "flags must be valid UTF-8".to_string())?;
+                    if !["", "s"].contains(&flags) {
+                        return Err("flags must be either empty or 's'".to_string());
+                    }
+                    Ok(())
+                })?;
             }
             _ => unreachable!(),
         }
