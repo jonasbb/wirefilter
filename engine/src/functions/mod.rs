@@ -1,3 +1,5 @@
+//! Module containing all the built-in functions available in the engine.
+
 pub(crate) mod cidr;
 pub(crate) mod cidr6;
 pub(crate) mod concat;
