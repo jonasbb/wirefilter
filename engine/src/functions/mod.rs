@@ -2,12 +2,14 @@
 
 pub(crate) mod cidr;
 pub(crate) mod cidr6;
+pub(crate) mod coalesce;
 pub(crate) mod concat;
 pub(crate) mod decode_base64;
 pub(crate) mod encode_base64;
 pub(crate) mod ends_with;
 pub(crate) mod has_key;
 pub(crate) mod has_value;
+pub(crate) mod hash_in_range;
 pub(crate) mod is_jwt_present;
 pub(crate) mod is_jwt_valid;
 pub(crate) mod is_timed_hmac_valid_v0;
@@ -36,12 +38,14 @@ use crate::types::{
 };
 pub use cidr::CIDRFunction;
 pub use cidr6::CIDR6Function;
+pub use coalesce::CoalesceFunction;
 pub use concat::ConcatFunction;
 pub use decode_base64::DecodeBase64Function;
 pub use encode_base64::EncodeBase64Function;
 pub use ends_with::EndsWithFunction;
 pub use has_key::HasKeyFunction;
 pub use has_value::HasValueFunction;
+pub use hash_in_range::HashInRangeFunction;
 pub use is_jwt_present::IsJwtPresentFunction;
 pub use is_jwt_valid::IsJwtValidFunction;
 pub use is_timed_hmac_valid_v0::IsTimedHmacValidV0Function;
