@@ -1,7 +1,9 @@
 use crate::ast::parse::{FilterParser, ParseError, ParserSettings};
 use crate::ast::{FilterAst, FilterValueAst};
 use crate::functions::FunctionDefinition;
-use crate::lex::{Lex, LexErrorKind, LexResult, LexWith, expect, span, take_while};
+use crate::lex::{
+    Lex, LexErrorKind, LexResult, LexWith, expect, span, span_reverse_range, take_while,
+};
 use crate::list_matcher::ListDefinition;
 use crate::types::{GetType, LiteralValue, Type};
 use fnv::FnvBuildHasher;
@@ -439,13 +441,17 @@ pub(crate) enum Identifier<'s> {
 
 impl<'i, 's> LexWith<'i, &'s Scheme> for Identifier<'s> {
     fn lex_with(input: &'i str, scheme: &'s Scheme) -> LexResult<'i, Self> {
-        let (name, input) = lex_identifier_name(input)?;
+        let (name, rest) = lex_identifier_name(input)?;
 
-        let field = scheme
+        let mut field = scheme
             .get(name)
             .ok_or((LexErrorKind::UnknownIdentifier, name))?;
 
-        Ok((field, input))
+        if let Identifier::Function(f) = &mut field {
+            f.reverse_span = span_reverse_range(input, rest);
+        }
+
+        Ok((field, rest))
     }
 }
 
