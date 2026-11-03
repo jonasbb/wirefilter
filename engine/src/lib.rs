@@ -102,7 +102,8 @@ pub use self::functions::{
     CompiledFunction, ConcatFunction, FunctionArgInvalidConstantError, FunctionArgKind,
     FunctionArgKindMismatchError, FunctionArgs, FunctionDefinition, FunctionDefinitionContext,
     FunctionParam, FunctionParamError, SimpleFunctionArgKind, SimpleFunctionDefinition,
-    SimpleFunctionImpl, SimpleFunctionOptParam, SimpleFunctionParam,
+    SimpleFunctionImpl, SimpleFunctionOptParam, SimpleFunctionParam, TrimEndFunction, TrimFunction,
+    TrimStartFunction,
 };
 pub use self::lex::LexErrorKind;
 pub use self::lhs_types::{Array, Bytes, Map, MapIter, TypedArray, TypedMap};
