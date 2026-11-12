@@ -24,8 +24,6 @@ impl FunctionDefinition for StartsWithFunction {
                 next_param.expect_val_type(iter::once(Type::Bytes.into()))?;
             }
             1 => {
-                // second arg
-                next_param.arg_kind().expect(FunctionArgKind::Literal)?;
                 next_param.expect_val_type(iter::once(Type::Bytes.into()))?;
             }
             _ => unreachable!(),
