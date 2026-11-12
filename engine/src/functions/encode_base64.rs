@@ -25,7 +25,10 @@ impl FunctionDefinition for EncodeBase64Function {
     ) -> Result<(), super::FunctionParamError> {
         match params.len() {
             0 => {
-                // input: String | Bytes (accept either literal or field)
+                // input: String | Bytes
+                next_param
+                    .arg_kind()
+                    .expect(super::FunctionArgKind::Field)?;
                 next_param.expect_val_type(iter::once(Type::Bytes.into()))?;
             }
             1 => {
@@ -35,6 +38,9 @@ impl FunctionDefinition for EncodeBase64Function {
                     .expect(super::FunctionArgKind::Literal)?;
                 next_param.expect_val_type(iter::once(Type::Bytes.into()))?;
                 next_param.expect_const_value::<&crate::BytesExpr, _>(|flags| {
+                    if flags.is_empty() {
+                        return Err("Flags should not be empty.".to_string());
+                    }
                     for &c in flags {
                         // Acceptable flags are
                         // * 'u' (URL-safe)
@@ -49,6 +55,7 @@ impl FunctionDefinition for EncodeBase64Function {
                     }
                     Ok(())
                 })?;
+                super::expect_unique_bytes(next_param)?;
             }
             _ => unreachable!(),
         }
