@@ -51,6 +51,14 @@ impl FunctionDefinition for UrlDecodeFunction {
                     .arg_kind()
                     .expect(super::FunctionArgKind::Literal)?;
                 next_param.expect_val_type(iter::once(Type::Bytes.into()))?;
+                next_param.expect_const_value::<&crate::BytesExpr, _>(|options| {
+                    for &option in options {
+                        if !matches!(option, b'r' | b'u') {
+                            return Err("options must contain only 'r' and 'u'".to_string());
+                        }
+                    }
+                    Ok(())
+                })?;
             }
             _ => unreachable!(),
         }
