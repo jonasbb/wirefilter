@@ -1,13 +1,11 @@
-use std::iter;
-
-use crate::{LhsValue, Type};
-
 use super::{FunctionArgKind, FunctionArgs, FunctionDefinition};
+use crate::{LhsValue, Type};
+use std::iter;
 
 /// Returns the integer value associated with the supplied key in `field`.
 ///
 /// The `field` must be a string containing a valid JSON document. Subsequent
-/// arguments are literal keys that can be attribute names (strings) or
+/// arguments are keys that can be attribute names (strings) or
 /// zero-based array positions (integers). Keys are applied in order to traverse
 /// the JSON hierarchy. Only plain integers are returned (floats like `42.0`
 /// are rejected).
@@ -23,10 +21,14 @@ impl FunctionDefinition for JsonLookupIntegerFunction {
         _: Option<&mut super::FunctionDefinitionContext>,
     ) -> Result<(), super::FunctionParamError> {
         match params.len() {
+            // `field` must be a FIELD byte string
+            // Constraints are not mentioned in the online documentation, but experimentally verified.
             0 => {
                 next_param.arg_kind().expect(FunctionArgKind::Field)?;
                 next_param.expect_val_type(iter::once(Type::Bytes.into()))?;
             }
+            // `key` must be a LITERAL byte string
+            // Constraints are not mentioned in the online documentation, but experimentally verified.
             _ => {
                 next_param.arg_kind().expect(FunctionArgKind::Literal)?;
                 next_param

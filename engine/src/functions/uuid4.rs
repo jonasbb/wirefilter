@@ -1,8 +1,8 @@
-use super::{FunctionArgKind, FunctionArgs, FunctionDefinition};
+use super::{FunctionArgs, FunctionDefinition};
 use crate::{LhsValue, Type};
 use std::iter;
 
-/// Generates a random UUIDv4 (Universally Unique Identifier, version 4) based on the given argument (a source of randomness).
+/// Defines Cloudflare's `uuidv4` function.
 /// To obtain an array of random bytes, use the cf.random_seed field.
 /// For example, uuidv4(cf.random_seed) will return a UUIDv4 similar to 49887398-6bcf-485f-8899-f15dbef4d1d5.
 #[derive(Debug, Default)]
@@ -17,8 +17,10 @@ impl FunctionDefinition for UUID4Function {
         _: Option<&mut super::FunctionDefinitionContext>,
     ) -> Result<(), super::FunctionParamError> {
         match params.len() {
+            // `source` must be a LITERAL byte string
+            // Constraints are not mentioned in the online documentation, but experimentally verified.
             0 => {
-                next_param.arg_kind().expect(FunctionArgKind::Field)?;
+                next_param.arg_kind().expect(super::FunctionArgKind::Literal)?;
                 next_param.expect_val_type(iter::once(Type::Bytes.into()))?;
             }
             _ => unreachable!(),

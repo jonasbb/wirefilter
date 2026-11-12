@@ -1,8 +1,7 @@
 use crate::{FunctionArgs, FunctionDefinition, LhsValue, Type};
 use std::iter;
 
-/// `split(input, separator, limit)` — split `input` string by `separator` into
-/// an array of strings with at most `limit` elements.
+/// Splits a string by its separator into an array with at most `limit` elements.
 #[derive(Debug, Default)]
 pub struct SplitFunction {}
 
@@ -22,12 +21,15 @@ impl FunctionDefinition for SplitFunction {
         _: Option<&mut super::FunctionDefinitionContext>,
     ) -> Result<(), super::FunctionParamError> {
         match params.len() {
+            // `input` must be a FIELD byte string
+            // MUST be field `http.request.uri.query` or `raw.http.request.uri.query`
             0 => {
                 next_param
                     .arg_kind()
                     .expect(super::FunctionArgKind::Field)?;
                 next_param.expect_val_type(iter::once(Type::Bytes.into()))?;
             }
+            // `separator` must be a LITERAL byte string
             1 => {
                 next_param
                     .arg_kind()
@@ -40,6 +42,7 @@ impl FunctionDefinition for SplitFunction {
                     Ok(())
                 })?;
             }
+            // `limit` must be a LITERAL integer between 1 and 128
             2 => {
                 next_param
                     .arg_kind()
@@ -49,7 +52,7 @@ impl FunctionDefinition for SplitFunction {
                     if *v >= 1 && *v <= 128 {
                         Ok(())
                     } else {
-                        Err("limit must be between 1 and 128".to_string())
+                        Err("split limit must be between 1 and 128".to_string())
                     }
                 })?;
             }

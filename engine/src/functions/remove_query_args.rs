@@ -20,10 +20,14 @@ impl FunctionDefinition for RemoveQueryArgsFunction {
         _: Option<&mut super::FunctionDefinitionContext>,
     ) -> Result<(), super::FunctionParamError> {
         match params.len() {
+            // `field` must be a FIELD byte string
+            // MUST be field `http.request.uri.query` or `raw.http.request.uri.query`
             0 => {
                 next_param.arg_kind().expect(FunctionArgKind::Field)?;
                 next_param.expect_val_type(std::iter::once(Type::Bytes.into()))?;
             }
+            // `query_param` must be a LITERAL byte string
+            // Constraints are not mentioned in the online documentation, but experimentally verified.
             _ => {
                 next_param.arg_kind().expect(FunctionArgKind::Literal)?;
                 next_param.expect_val_type(std::iter::once(Type::Bytes.into()))?;
