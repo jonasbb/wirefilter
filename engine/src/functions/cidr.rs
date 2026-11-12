@@ -97,17 +97,35 @@ impl FunctionDefinition for CIDRFunction {
                     .expect(super::FunctionArgKind::Field)?;
                 next_param.expect_val_type(iter::once(Type::Ip.into()))?;
             }
+            // `ipv4_network_bits` must be an LITERAL integer between 1 and 32
+            // Constraints are not mentioned in the online documentation, but experimentally verified.
             1 => {
                 next_param
                     .arg_kind()
                     .expect(super::FunctionArgKind::Literal)?;
                 next_param.expect_val_type(iter::once(Type::Int.into()))?;
+                next_param.expect_const_value::<&i64, _>(|ipv4_network_bits| {
+                    if (1..=32).contains(ipv4_network_bits) {
+                        Ok(())
+                    } else {
+                        Err("ipv4_network_bits must be between 1 and 32".to_string())
+                    }
+                })?;
             }
+            // `ipv6_network_bits` must be an LITERAL integer between 1 and 128
+            // Constraints are not mentioned in the online documentation, but experimentally verified.
             2 => {
                 next_param
                     .arg_kind()
                     .expect(super::FunctionArgKind::Literal)?;
                 next_param.expect_val_type(iter::once(Type::Int.into()))?;
+                next_param.expect_const_value::<&i64, _>(|ipv6_network_bits| {
+                    if (1..=128).contains(ipv6_network_bits) {
+                        Ok(())
+                    } else {
+                        Err("ipv6_network_bits must be between 1 and 128".to_string())
+                    }
+                })?;
             }
             _ => unreachable!(),
         }

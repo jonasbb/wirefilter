@@ -29,18 +29,18 @@ impl FunctionDefinition for CIDR6Function {
                     .expect(super::FunctionArgKind::Field)?;
                 next_param.expect_val_type(iter::once(Type::Ip.into()))?;
             }
+            // `ipv6_network_bits` must be an LITERAL integer between 1 and 128
+            // Constraints are not mentioned in the online documentation, but experimentally verified.
             1 => {
-                // ipv6_network_bits: literal integer
                 next_param
                     .arg_kind()
                     .expect(super::FunctionArgKind::Literal)?;
                 next_param.expect_val_type(iter::once(Type::Int.into()))?;
-                // optional: validate numeric range if constant provided
                 next_param.expect_const_value::<&i64, _>(|ipv6_network_bits| {
-                    if *ipv6_network_bits >= 1 && *ipv6_network_bits <= 128 {
+                    if (1..=128).contains(ipv6_network_bits) {
                         Ok(())
                     } else {
-                        Err("ipv6 network bits must be between 1 and 128".to_string())
+                        Err("ipv6_network_bits must be between 1 and 128".to_string())
                     }
                 })?;
             }
