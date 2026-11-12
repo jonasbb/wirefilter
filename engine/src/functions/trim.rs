@@ -28,6 +28,7 @@ impl FunctionDefinition for TrimFunction {
                     .arg_kind()
                     .expect(super::FunctionArgKind::Literal)?;
                 next_param.expect_val_type(iter::once(Type::Bytes.into()))?;
+                super::expect_unique_bytes(next_param)?;
             }
             _ => unreachable!(),
         }
@@ -54,5 +55,42 @@ impl FunctionDefinition for TrimFunction {
     ) -> Box<dyn for<'i, 'a> Fn(FunctionArgs<'i, 'a>) -> Option<LhsValue<'a>> + Sync + Send + 'static>
     {
         unimplemented!()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rejects_duplicate_trim_bytes() {
+        let trim_set = super::super::LiteralValue::Bytes(crate::BytesExpr::new(
+            "aa".as_bytes(),
+            crate::BytesFormat::Quoted,
+        ));
+        let param = super::super::FunctionParam::Constant(&trim_set);
+        let source = super::super::FunctionParam::Variable(Type::Bytes);
+        let mut params = [source].into_iter();
+
+        assert!(
+            TrimFunction {}
+                .check_param(&crate::ParserSettings::default(), &mut params, &param, None,)
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn accepts_unique_trim_bytes() {
+        let trim_set = super::super::LiteralValue::Bytes(crate::BytesExpr::new(
+            "ab".as_bytes(),
+            crate::BytesFormat::Quoted,
+        ));
+        let param = super::super::FunctionParam::Constant(&trim_set);
+        let source = super::super::FunctionParam::Variable(Type::Bytes);
+        let mut params = [source].into_iter();
+
+        TrimFunction {}
+            .check_param(&crate::ParserSettings::default(), &mut params, &param, None)
+            .unwrap();
     }
 }

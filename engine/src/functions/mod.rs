@@ -343,6 +343,19 @@ impl<'a> FunctionParam<'a> {
     }
 }
 
+pub(crate) fn expect_unique_bytes(param: &FunctionParam<'_>) -> Result<(), FunctionParamError> {
+    param.expect_const_value::<&crate::BytesExpr, _>(|bytes| {
+        let mut seen = [false; 256];
+        for &byte in bytes {
+            if seen[usize::from(byte)] {
+                return Err("value cannot contain duplicate bytes".to_string());
+            }
+            seen[usize::from(byte)] = true;
+        }
+        Ok(())
+    })
+}
+
 /// Context that can be created and used
 /// when parsing a function call
 pub struct FunctionDefinitionContext {

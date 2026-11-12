@@ -28,6 +28,7 @@ impl FunctionDefinition for TrimStartFunction {
                     .arg_kind()
                     .expect(super::FunctionArgKind::Literal)?;
                 next_param.expect_val_type(iter::once(Type::Bytes.into()))?;
+                super::expect_unique_bytes(next_param)?;
             }
             _ => unreachable!(),
         }
