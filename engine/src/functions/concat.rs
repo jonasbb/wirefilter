@@ -109,7 +109,9 @@ impl FunctionDefinition for ConcatFunction {
     }
 
     fn arg_count(&self) -> (usize, Option<usize>) {
-        (2, None)
+        // Concat supports up to 32 arguments
+        // https://developers.cloudflare.com/changelog/post/2026-09-22-concat-argument-limit/
+        (2, Some(30))
     }
 
     fn compile(
