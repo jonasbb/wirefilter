@@ -17,10 +17,12 @@ impl FunctionDefinition for UUID4Function {
         _: Option<&mut super::FunctionDefinitionContext>,
     ) -> Result<(), super::FunctionParamError> {
         match params.len() {
-            // `source` must be a LITERAL byte string
+            // `source` must be a FIELD byte string
             // Constraints are not mentioned in the online documentation, but experimentally verified.
             0 => {
-                next_param.arg_kind().expect(super::FunctionArgKind::Literal)?;
+                next_param
+                    .arg_kind()
+                    .expect(super::FunctionArgKind::Field)?;
                 next_param.expect_val_type(iter::once(Type::Bytes.into()))?;
             }
             _ => unreachable!(),
